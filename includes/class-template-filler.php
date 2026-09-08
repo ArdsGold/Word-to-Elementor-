@@ -1,6 +1,6 @@
 <?php
 /**
- * Fill the bundled Elementor JSON with parsed Word content.
+ * Fill an Elementor JSON template using data-customid attributes.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -8,37 +8,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class WTE_Template_Filler {
-	const HERO_TITLE      = '775791e4';
-	const HERO_SUBTITLE   = '16470985';
-	const HERO_INTRO      = '13c63b7c';
-	const WHY_HEADING     = '79b98cd1';
-	const PROCESS_HEADING = '37a26e4c';
-	const FAQ_HEADING     = '4a3fd35c';
-	const FAQ_TOGGLE      = 'ff78da7';
-	const CLOSING_HEADING = '67663685';
-	const CLOSING_INTRO   = '67af4214';
-
-	/**
-	 * @var string[]
-	 */
-	private $service_ids = array( '2ab919e8', '3363aefc', '3caf3129', '7dca336f' );
-
-	/**
-	 * @var string[]
-	 */
-	private $why_ids = array( 'eda1818', '17dfeafe', '5954d86d', '6c3a305e', '707225c1', '3ef8494b' );
-
-	/**
-	 * @var array<int, array{heading:string,body:string}>
-	 */
-	private $process_ids = array(
-		array( 'heading' => '4f770113', 'body' => '3d139e77' ),
-		array( 'heading' => '7611f7a3', 'body' => '4ad514a9' ),
-		array( 'heading' => '246e5e43', 'body' => '2182194d' ),
-		array( 'heading' => '345afdc7', 'body' => '4cfb9cb1' ),
-		array( 'heading' => '18fa8903', 'body' => '8b446e4' ),
-		array( 'heading' => '2d8e5c4a', 'body' => '511c11bc' ),
-	);
+	const HERO_TITLE      = 'HeroH1';
+	const HERO_INTRO      = 'HeroP';
+	const SERVICES_HEADING = 'Section2H2';
+	const WHY_HEADING     = 'Section3H2';
+	const PROCESS_HEADING = 'Section4H2';
+	const FAQ_HEADING     = 'Section5H2';
+	const FAQ_TOGGLE      = 'Section5Content';
+	const CLOSING_HEADING = 'Section6H2';
+	const CLOSING_INTRO   = 'Section6P';
 
 	/**
 	 * @param array $outline
@@ -46,7 +24,7 @@ class WTE_Template_Filler {
 	 * @throws Exception
 	 */
 	public function fill( $outline ) {
-		$path = WTE_PLUGIN_DIR . 'templates/AutomationTestTemplate2.0.json';
+		$path = WTE_Template_Store::active_path();
 		if ( ! is_readable( $path ) ) {
 			throw new Exception( __( 'The Elementor template file is missing.', 'word-to-elementor-wf' ) );
 		}
@@ -61,31 +39,44 @@ class WTE_Template_Filler {
 		$this->index_nodes( $data['content'], $index );
 
 		$this->set_heading( $index, self::HERO_TITLE, $outline['title'] );
-		$this->set_heading( $index, self::HERO_SUBTITLE, $outline['subtitle'] );
 		$this->set_editor( $index, self::HERO_INTRO, $outline['intro'] );
 
-		foreach ( $this->service_ids as $i => $id ) {
+		if ( ! empty( $outline['services_heading'] ) ) {
+			$this->set_heading( $index, self::SERVICES_HEADING, $outline['services_heading'] );
+		}
+		for ( $i = 0; $i < 4; $i++ ) {
 			if ( empty( $outline['services'][ $i ] ) ) {
 				break;
 			}
-			$this->set_icon_box( $index, $id, $outline['services'][ $i ]['title'], $outline['services'][ $i ]['body'] );
+			$this->set_icon_box(
+				$index,
+				'Section2Content' . ( $i + 1 ),
+				$outline['services'][ $i ]['title'],
+				$outline['services'][ $i ]['body']
+			);
 		}
 
 		$this->set_heading( $index, self::WHY_HEADING, $outline['why_heading'] );
-		foreach ( $this->why_ids as $i => $id ) {
+		for ( $i = 0; $i < 6; $i++ ) {
 			if ( empty( $outline['why'][ $i ] ) ) {
 				break;
 			}
-			$this->set_icon_box( $index, $id, $outline['why'][ $i ]['title'], $outline['why'][ $i ]['body'] );
+			$this->set_icon_box(
+				$index,
+				'Section3Content' . ( $i + 1 ),
+				$outline['why'][ $i ]['title'],
+				$outline['why'][ $i ]['body']
+			);
 		}
 
 		$this->set_heading( $index, self::PROCESS_HEADING, $outline['process_heading'] );
-		foreach ( $this->process_ids as $i => $pair ) {
+		for ( $i = 0; $i < 6; $i++ ) {
 			if ( empty( $outline['process'][ $i ] ) ) {
 				break;
 			}
-			$this->set_heading( $index, $pair['heading'], $outline['process'][ $i ]['title'] );
-			$this->set_editor( $index, $pair['body'], array( $outline['process'][ $i ]['body'] ) );
+			$n = $i + 1;
+			$this->set_heading( $index, 'Section4Content' . $n . 'H3', $outline['process'][ $i ]['title'] );
+			$this->set_editor( $index, 'Section4Content' . $n . 'Desc', array( $outline['process'][ $i ]['body'] ) );
 		}
 
 		$this->set_heading( $index, self::FAQ_HEADING, $outline['faq_heading'] );
@@ -99,20 +90,23 @@ class WTE_Template_Filler {
 			: array( 'hide_title' => 'yes' );
 
 		return array(
-			'content'        => $data['content'],
-			'page_settings'  => $page_settings,
-			'title'          => $outline['title'],
+			'content'       => $data['content'],
+			'page_settings' => $page_settings,
+			'title'         => $outline['title'],
 		);
 	}
 
 	/**
+	 * Index widgets by data-customid from Elementor Advanced attributes.
+	 *
 	 * @param array $nodes
 	 * @param array $index
 	 */
 	private function index_nodes( &$nodes, &$index ) {
 		foreach ( $nodes as &$node ) {
-			if ( ! empty( $node['id'] ) ) {
-				$index[ $node['id'] ] = &$node;
+			$custom_id = $this->node_custom_id( $node );
+			if ( '' !== $custom_id ) {
+				$index[ $custom_id ] = &$node;
 			}
 			if ( ! empty( $node['elements'] ) && is_array( $node['elements'] ) ) {
 				$this->index_nodes( $node['elements'], $index );
@@ -122,42 +116,81 @@ class WTE_Template_Filler {
 	}
 
 	/**
-	 * @param array  $index
-	 * @param string $id
-	 * @param string $title
+	 * @param array $node
+	 * @return string
 	 */
-	private function set_heading( &$index, $id, $title ) {
-		if ( '' === (string) $title || empty( $index[ $id ] ) ) {
-			return;
+	private function node_custom_id( $node ) {
+		if ( empty( $node['settings'] ) || ! is_array( $node['settings'] ) ) {
+			return '';
 		}
-		$index[ $id ]['settings']['title'] = $title;
+		$raw = '';
+		if ( ! empty( $node['settings']['_attributes'] ) ) {
+			$raw = $node['settings']['_attributes'];
+		} elseif ( ! empty( $node['settings']['_element_custom_attributes'] ) ) {
+			$raw = $node['settings']['_element_custom_attributes'];
+		}
+		if ( is_array( $raw ) ) {
+			foreach ( $raw as $row ) {
+				$key = isset( $row['key'] ) ? $row['key'] : ( isset( $row['name'] ) ? $row['name'] : '' );
+				$val = isset( $row['value'] ) ? $row['value'] : '';
+				if ( 'data-customid' === strtolower( (string) $key ) ) {
+					return trim( (string) $val );
+				}
+			}
+			return '';
+		}
+
+		foreach ( preg_split( '/\r\n|\r|\n/', (string) $raw ) as $line ) {
+			$line = trim( $line );
+			if ( '' === $line ) {
+				continue;
+			}
+			$parts = explode( '|', $line, 2 );
+			if ( 2 === count( $parts ) && 'data-customid' === strtolower( trim( $parts[0] ) ) ) {
+				return trim( $parts[1] );
+			}
+		}
+
+		return '';
 	}
 
 	/**
 	 * @param array  $index
-	 * @param string $id
+	 * @param string $custom_id
+	 * @param string $title
+	 */
+	private function set_heading( &$index, $custom_id, $title ) {
+		if ( '' === (string) $title || empty( $index[ $custom_id ] ) ) {
+			return;
+		}
+		$index[ $custom_id ]['settings']['title'] = $title;
+	}
+
+	/**
+	 * @param array  $index
+	 * @param string $custom_id
 	 * @param string $title
 	 * @param string $body
 	 */
-	private function set_icon_box( &$index, $id, $title, $body ) {
-		if ( empty( $index[ $id ] ) ) {
+	private function set_icon_box( &$index, $custom_id, $title, $body ) {
+		if ( empty( $index[ $custom_id ] ) ) {
 			return;
 		}
 		if ( '' !== (string) $title ) {
-			$index[ $id ]['settings']['title_text'] = $title;
+			$index[ $custom_id ]['settings']['title_text'] = $title;
 		}
 		if ( '' !== (string) $body ) {
-			$index[ $id ]['settings']['description_text'] = $body;
+			$index[ $custom_id ]['settings']['description_text'] = $body;
 		}
 	}
 
 	/**
 	 * @param array    $index
-	 * @param string   $id
+	 * @param string   $custom_id
 	 * @param string[] $paragraphs
 	 */
-	private function set_editor( &$index, $id, $paragraphs ) {
-		if ( empty( $index[ $id ] ) || empty( $paragraphs ) ) {
+	private function set_editor( &$index, $custom_id, $paragraphs ) {
+		if ( empty( $index[ $custom_id ] ) || empty( $paragraphs ) ) {
 			return;
 		}
 		$html = '';
@@ -169,23 +202,23 @@ class WTE_Template_Filler {
 			$html .= '<p>' . esc_html( $para ) . '</p>';
 		}
 		if ( '' !== $html ) {
-			$index[ $id ]['settings']['editor'] = $html;
+			$index[ $custom_id ]['settings']['editor'] = $html;
 		}
 	}
 
 	/**
-	 * @param array $index
-	 * @param string $id
-	 * @param array $faqs
+	 * @param array  $index
+	 * @param string $custom_id
+	 * @param array  $faqs
 	 */
-	private function set_faqs( &$index, $id, $faqs ) {
-		if ( empty( $index[ $id ] ) || empty( $faqs ) ) {
+	private function set_faqs( &$index, $custom_id, $faqs ) {
+		if ( empty( $index[ $custom_id ] ) || empty( $faqs ) ) {
 			return;
 		}
-		if ( empty( $index[ $id ]['settings']['tabs'] ) || ! is_array( $index[ $id ]['settings']['tabs'] ) ) {
+		if ( empty( $index[ $custom_id ]['settings']['tabs'] ) || ! is_array( $index[ $custom_id ]['settings']['tabs'] ) ) {
 			return;
 		}
-		foreach ( $index[ $id ]['settings']['tabs'] as $i => &$tab ) {
+		foreach ( $index[ $custom_id ]['settings']['tabs'] as $i => &$tab ) {
 			if ( empty( $faqs[ $i ] ) ) {
 				break;
 			}
@@ -196,5 +229,6 @@ class WTE_Template_Filler {
 				$tab['tab_content'] = '<p>' . esc_html( $faqs[ $i ]['a'] ) . '</p>';
 			}
 		}
+		unset( $tab );
 	}
 }

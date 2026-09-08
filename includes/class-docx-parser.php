@@ -94,7 +94,6 @@ class WTE_Docx_Parser {
 	 */
 	private function group_sections( $paragraphs ) {
 		$title         = '';
-		$subtitle_h1   = '';
 		$intro_paras   = array();
 		$current_key   = 'hero';
 		$section_items = array(
@@ -120,8 +119,6 @@ class WTE_Docx_Parser {
 			if ( 1 === $level ) {
 				if ( '' === $title ) {
 					$title = $this->strip_heading_prefix( $text );
-				} elseif ( '' === $subtitle_h1 ) {
-					$subtitle_h1 = $this->strip_heading_prefix( $text );
 				}
 				$current_key = 'hero';
 				$pending_h3  = null;
@@ -170,63 +167,19 @@ class WTE_Docx_Parser {
 			$pending_h3 = null;
 		}
 
-		if ( '' !== $subtitle_h1 ) {
-			$hero = array(
-				'subtitle' => $subtitle_h1,
-				'intro'    => $intro_paras,
-			);
-		} else {
-			$hero = $this->split_hero_intro( $intro_paras );
-		}
-
 		return array(
-			'title'           => $title,
-			'subtitle'        => $hero['subtitle'],
-			'intro'           => $hero['intro'],
-			'services'        => array_slice( $section_items['services'], 0, 4 ),
-			'why_heading'     => $headings['why'],
-			'why'             => array_slice( $section_items['why'], 0, 6 ),
-			'process_heading' => $headings['process'] ? $headings['process'] : 'Our Process',
-			'process'         => array_slice( $section_items['process'], 0, 6 ),
-			'faq_heading'     => $headings['faq'],
-			'faqs'            => array_slice( $section_items['faq'], 0, 6 ),
-			'closing_heading' => $headings['closing'],
-			'closing'         => $section_items['closing'],
-		);
-	}
-
-	/**
-	 * @param array $intro_paras
-	 * @return array{subtitle:string,intro:string[]}
-	 */
-	private function split_hero_intro( $intro_paras ) {
-		$intro_paras = array_values( array_filter( $intro_paras, 'strlen' ) );
-
-		if ( empty( $intro_paras ) ) {
-			return array(
-				'subtitle' => '',
-				'intro'    => array(),
-			);
-		}
-
-		if ( count( $intro_paras ) > 1 ) {
-			return array(
-				'subtitle' => $intro_paras[0],
-				'intro'    => array_slice( $intro_paras, 1 ),
-			);
-		}
-
-		$single = $intro_paras[0];
-		if ( preg_match( '/^(.+?[.!?])\s+(.+)$/us', $single, $m ) ) {
-			return array(
-				'subtitle' => trim( $m[1] ),
-				'intro'    => array( trim( $m[2] ) ),
-			);
-		}
-
-		return array(
-			'subtitle' => $single,
-			'intro'    => array(),
+			'title'             => $title,
+			'intro'             => $intro_paras,
+			'services_heading'  => $headings['services'],
+			'services'          => array_slice( $section_items['services'], 0, 4 ),
+			'why_heading'       => $headings['why'],
+			'why'               => array_slice( $section_items['why'], 0, 6 ),
+			'process_heading'   => $headings['process'] ? $headings['process'] : 'Our Process',
+			'process'           => array_slice( $section_items['process'], 0, 6 ),
+			'faq_heading'       => $headings['faq'],
+			'faqs'              => array_slice( $section_items['faq'], 0, 6 ),
+			'closing_heading'   => $headings['closing'],
+			'closing'           => $section_items['closing'],
 		);
 	}
 

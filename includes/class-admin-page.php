@@ -27,23 +27,34 @@ class WTE_Admin_Page {
 			return;
 		}
 
-		$result = null;
-		$error  = '';
+		$page_result     = null;
+		$template_notice = '';
+		$error           = '';
 
 		if ( 'POST' === $_SERVER['REQUEST_METHOD'] && isset( $_POST['wte_nonce'] ) ) {
-			check_admin_referer( 'wte_create_page', 'wte_nonce' );
+			check_admin_referer( 'wte_admin', 'wte_nonce' );
+			$action = isset( $_POST['wte_action'] ) ? sanitize_key( wp_unslash( $_POST['wte_action'] ) ) : '';
 			try {
-				$result = $this->handle_submit();
+				if ( 'save_template' === $action ) {
+					$this->handle_template_upload();
+					$template_notice = __( 'Custom Elementor template saved. New pages will use this JSON.', 'word-to-elementor-wf' );
+				} elseif ( 'reset_template' === $action ) {
+					WTE_Template_Store::reset();
+					$template_notice = __( 'Reverted to the bundled Elementor template.', 'word-to-elementor-wf' );
+				} elseif ( 'create_page' === $action ) {
+					$page_result = $this->handle_create_page();
+				}
 			} catch ( Exception $e ) {
 				$error = $e->getMessage();
 			}
 		}
 
 		$elementor_ok = did_action( 'elementor/loaded' ) || defined( 'ELEMENTOR_VERSION' );
+		$using_custom = WTE_Template_Store::using_custom();
 		?>
 		<div class="wrap">
 			<h1><?php esc_html_e( 'Word to Elementor WF', 'word-to-elementor-wf' ); ?></h1>
-			<p><?php esc_html_e( 'Upload a .docx outline (Heading 1 / 2 / 3) to fill the bundled Elementor page template and create a draft page.', 'word-to-elementor-wf' ); ?></p>
+			<p><?php esc_html_e( 'Upload a .docx outline (Heading 1 / 2 / 3) to fill the Elementor template and create a draft page.', 'word-to-elementor-wf' ); ?></p>
 
 			<?php if ( ! $elementor_ok ) : ?>
 				<div class="notice notice-error"><p><?php esc_html_e( 'Elementor must be installed and active.', 'word-to-elementor-wf' ); ?></p></div>
@@ -53,7 +64,11 @@ class WTE_Admin_Page {
 				<div class="notice notice-error"><p><?php echo esc_html( $error ); ?></p></div>
 			<?php endif; ?>
 
-			<?php if ( $result ) : ?>
+			<?php if ( $template_notice ) : ?>
+				<div class="notice notice-success"><p><?php echo esc_html( $template_notice ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( $page_result ) : ?>
 				<div class="notice notice-success">
 					<p>
 						<?php
@@ -61,23 +76,25 @@ class WTE_Admin_Page {
 							sprintf(
 								/* translators: %s: page title */
 								__( 'Draft page created: %s', 'word-to-elementor-wf' ),
-								$result['title']
+								$page_result['title']
 							)
 						);
 						?>
 					</p>
 					<p>
-						<a href="<?php echo esc_url( $result['edit_url'] ); ?>"><?php esc_html_e( 'Edit page', 'word-to-elementor-wf' ); ?></a>
-						<?php if ( ! empty( $result['elementor_url'] ) ) : ?>
+						<a href="<?php echo esc_url( $page_result['edit_url'] ); ?>"><?php esc_html_e( 'Edit page', 'word-to-elementor-wf' ); ?></a>
+						<?php if ( ! empty( $page_result['elementor_url'] ) ) : ?>
 							|
-							<a href="<?php echo esc_url( $result['elementor_url'] ); ?>"><?php esc_html_e( 'Edit with Elementor', 'word-to-elementor-wf' ); ?></a>
+							<a href="<?php echo esc_url( $page_result['elementor_url'] ); ?>"><?php esc_html_e( 'Edit with Elementor', 'word-to-elementor-wf' ); ?></a>
 						<?php endif; ?>
 					</p>
 				</div>
 			<?php endif; ?>
 
+			<h2><?php esc_html_e( 'Create page from Word', 'word-to-elementor-wf' ); ?></h2>
 			<form method="post" enctype="multipart/form-data">
-				<?php wp_nonce_field( 'wte_create_page', 'wte_nonce' ); ?>
+				<?php wp_nonce_field( 'wte_admin', 'wte_nonce' ); ?>
+				<input type="hidden" name="wte_action" value="create_page" />
 				<table class="form-table" role="presentation">
 					<tr>
 						<th scope="row">
@@ -100,15 +117,74 @@ class WTE_Admin_Page {
 				</table>
 				<?php submit_button( __( 'Create draft page', 'word-to-elementor-wf' ), 'primary', 'wte_submit', false, $elementor_ok ? array() : array( 'disabled' => 'disabled' ) ); ?>
 			</form>
+
+			<hr />
+
+			<h2><?php esc_html_e( 'Elementor template', 'word-to-elementor-wf' ); ?></h2>
+			<p>
+				<?php if ( $using_custom ) : ?>
+					<strong><?php esc_html_e( 'Using: uploaded custom template.json', 'word-to-elementor-wf' ); ?></strong>
+				<?php else : ?>
+					<?php esc_html_e( 'Using: bundled AutomationTestTemplate2.0.json', 'word-to-elementor-wf' ); ?>
+				<?php endif; ?>
+			</p>
+			<p class="description">
+				<?php esc_html_e( 'Widgets are filled by Advanced → Attributes → data-customid (for example HeroH1, HeroP, Section2Content1). Native Elementor data-id values are ignored.', 'word-to-elementor-wf' ); ?>
+			</p>
+			<form method="post" enctype="multipart/form-data">
+				<?php wp_nonce_field( 'wte_admin', 'wte_nonce' ); ?>
+				<input type="hidden" name="wte_action" value="save_template" />
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row">
+							<label for="wte_template"><?php esc_html_e( 'Template JSON', 'word-to-elementor-wf' ); ?></label>
+						</th>
+						<td>
+							<input type="file" id="wte_template" name="wte_template" accept=".json,application/json" required />
+							<p class="description"><?php esc_html_e( 'Export the page from Elementor (JSON) after setting data-customid on each fillable widget.', 'word-to-elementor-wf' ); ?></p>
+						</td>
+					</tr>
+				</table>
+				<?php submit_button( __( 'Save custom template', 'word-to-elementor-wf' ), 'secondary', 'wte_save_template', false ); ?>
+			</form>
+			<?php if ( $using_custom ) : ?>
+				<form method="post" style="margin-top: 8px;">
+					<?php wp_nonce_field( 'wte_admin', 'wte_nonce' ); ?>
+					<input type="hidden" name="wte_action" value="reset_template" />
+					<?php submit_button( __( 'Use bundled template', 'word-to-elementor-wf' ), 'delete', 'wte_reset_template', false ); ?>
+				</form>
+			<?php endif; ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * @throws Exception
+	 */
+	private function handle_template_upload() {
+		if ( empty( $_FILES['wte_template'] ) || empty( $_FILES['wte_template']['tmp_name'] ) ) {
+			throw new Exception( __( 'Please upload an Elementor template .json file.', 'word-to-elementor-wf' ) );
+		}
+
+		$file = $_FILES['wte_template'];
+		if ( ! empty( $file['error'] ) ) {
+			throw new Exception( __( 'The template upload failed.', 'word-to-elementor-wf' ) );
+		}
+
+		$name = isset( $file['name'] ) ? $file['name'] : '';
+		$ext  = strtolower( pathinfo( $name, PATHINFO_EXTENSION ) );
+		if ( 'json' !== $ext ) {
+			throw new Exception( __( 'Only .json template files are supported.', 'word-to-elementor-wf' ) );
+		}
+
+		WTE_Template_Store::save_upload( $file['tmp_name'] );
 	}
 
 	/**
 	 * @return array{title:string,edit_url:string,elementor_url:string}
 	 * @throws Exception
 	 */
-	private function handle_submit() {
+	private function handle_create_page() {
 		if ( ! defined( 'ELEMENTOR_VERSION' ) && ! did_action( 'elementor/loaded' ) ) {
 			throw new Exception( __( 'Elementor must be installed and active.', 'word-to-elementor-wf' ) );
 		}
