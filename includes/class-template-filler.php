@@ -8,15 +8,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class WTE_Template_Filler {
-	const HERO_TITLE      = 'HeroH1';
-	const HERO_INTRO      = 'HeroP';
+	const HERO_TITLE       = 'HeroH1';
+	const HERO_INTRO       = 'HeroP';
 	const SERVICES_HEADING = 'Section2H2';
-	const WHY_HEADING     = 'Section3H2';
-	const PROCESS_HEADING = 'Section4H2';
-	const FAQ_HEADING     = 'Section5H2';
-	const FAQ_TOGGLE      = 'Section5Content';
-	const CLOSING_HEADING = 'Section6H2';
-	const CLOSING_INTRO   = 'Section6P';
+	const WHY_HEADING      = 'Section3H2';
+	const PROCESS_HEADING  = 'Section4H2';
+	const FAQ_HEADING      = 'Section5H2';
+	const FAQ_TOGGLE       = 'Section5Content';
+	const CLOSING_HEADING  = 'Section6H2';
+	const CLOSING_INTRO    = 'Section6P';
 
 	/**
 	 * @param array $outline
@@ -35,55 +35,58 @@ class WTE_Template_Filler {
 			throw new Exception( __( 'The Elementor template JSON is invalid.', 'word-to-elementor-wf' ) );
 		}
 
-		$index = array();
-		$this->index_nodes( $data['content'], $index );
+		$content = &$data['content'];
 
-		$this->set_heading( $index, self::HERO_TITLE, $outline['title'] );
-		$this->set_editor( $index, self::HERO_INTRO, $outline['intro'] );
+		$this->set_heading( $content, self::HERO_TITLE, $outline['title'] );
+		$this->set_editor( $content, self::HERO_INTRO, $outline['intro'] );
 
 		if ( ! empty( $outline['services_heading'] ) ) {
-			$this->set_heading( $index, self::SERVICES_HEADING, $outline['services_heading'] );
+			$this->set_heading( $content, self::SERVICES_HEADING, $outline['services_heading'] );
 		}
 		for ( $i = 0; $i < 4; $i++ ) {
 			if ( empty( $outline['services'][ $i ] ) ) {
 				break;
 			}
 			$this->set_icon_box(
-				$index,
+				$content,
 				'Section2Content' . ( $i + 1 ),
 				$outline['services'][ $i ]['title'],
 				$outline['services'][ $i ]['body']
 			);
 		}
 
-		$this->set_heading( $index, self::WHY_HEADING, $outline['why_heading'] );
+		$this->set_heading( $content, self::WHY_HEADING, $outline['why_heading'] );
 		for ( $i = 0; $i < 6; $i++ ) {
 			if ( empty( $outline['why'][ $i ] ) ) {
 				break;
 			}
 			$this->set_icon_box(
-				$index,
+				$content,
 				'Section3Content' . ( $i + 1 ),
 				$outline['why'][ $i ]['title'],
 				$outline['why'][ $i ]['body']
 			);
 		}
 
-		$this->set_heading( $index, self::PROCESS_HEADING, $outline['process_heading'] );
+		$this->set_heading( $content, self::PROCESS_HEADING, $outline['process_heading'] );
 		for ( $i = 0; $i < 6; $i++ ) {
 			if ( empty( $outline['process'][ $i ] ) ) {
 				break;
 			}
 			$n = $i + 1;
-			$this->set_heading( $index, 'Section4Content' . $n . 'H3', $outline['process'][ $i ]['title'] );
-			$this->set_editor( $index, 'Section4Content' . $n . 'Desc', array( $outline['process'][ $i ]['body'] ) );
+			$this->set_heading( $content, 'Section4Content' . $n . 'H3', $outline['process'][ $i ]['title'] );
+			$this->set_editor( $content, 'Section4Content' . $n . 'Desc', array( $outline['process'][ $i ]['body'] ) );
 		}
 
-		$this->set_heading( $index, self::FAQ_HEADING, $outline['faq_heading'] );
-		$this->set_faqs( $index, self::FAQ_TOGGLE, $outline['faqs'] );
+		$this->set_heading( $content, self::FAQ_HEADING, $outline['faq_heading'] );
+		$this->set_faqs( $content, self::FAQ_TOGGLE, $outline['faqs'] );
 
-		$this->set_heading( $index, self::CLOSING_HEADING, $outline['closing_heading'] );
-		$this->set_editor( $index, self::CLOSING_INTRO, $outline['closing'] );
+		if ( ! empty( $outline['closing_heading'] ) ) {
+			$this->set_heading( $content, self::CLOSING_HEADING, $outline['closing_heading'] );
+		}
+		if ( ! empty( $outline['closing'] ) ) {
+			$this->set_editor( $content, self::CLOSING_INTRO, $outline['closing'] );
+		}
 
 		$page_settings = isset( $data['page_settings'] ) && is_array( $data['page_settings'] )
 			? $data['page_settings']
@@ -94,25 +97,6 @@ class WTE_Template_Filler {
 			'page_settings' => $page_settings,
 			'title'         => $outline['title'],
 		);
-	}
-
-	/**
-	 * Index widgets by data-customid from Elementor Advanced attributes.
-	 *
-	 * @param array $nodes
-	 * @param array $index
-	 */
-	private function index_nodes( &$nodes, &$index ) {
-		foreach ( $nodes as &$node ) {
-			$custom_id = $this->node_custom_id( $node );
-			if ( '' !== $custom_id ) {
-				$index[ $custom_id ] = &$node;
-			}
-			if ( ! empty( $node['elements'] ) && is_array( $node['elements'] ) ) {
-				$this->index_nodes( $node['elements'], $index );
-			}
-		}
-		unset( $node );
 	}
 
 	/**
@@ -155,43 +139,65 @@ class WTE_Template_Filler {
 	}
 
 	/**
-	 * @param array  $index
+	 * @param array  $nodes
 	 * @param string $custom_id
 	 * @param string $title
+	 * @return bool
 	 */
-	private function set_heading( &$index, $custom_id, $title ) {
-		if ( '' === (string) $title || empty( $index[ $custom_id ] ) ) {
-			return;
+	private function set_heading( &$nodes, $custom_id, $title ) {
+		if ( '' === (string) $title ) {
+			return false;
 		}
-		$index[ $custom_id ]['settings']['title'] = $title;
+		foreach ( array_keys( $nodes ) as $i ) {
+			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
+				$nodes[ $i ]['settings']['title'] = $title;
+				return true;
+			}
+			if ( ! empty( $nodes[ $i ]['elements'] ) && is_array( $nodes[ $i ]['elements'] ) ) {
+				if ( $this->set_heading( $nodes[ $i ]['elements'], $custom_id, $title ) ) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/**
-	 * @param array  $index
+	 * @param array  $nodes
 	 * @param string $custom_id
 	 * @param string $title
 	 * @param string $body
+	 * @return bool
 	 */
-	private function set_icon_box( &$index, $custom_id, $title, $body ) {
-		if ( empty( $index[ $custom_id ] ) ) {
-			return;
+	private function set_icon_box( &$nodes, $custom_id, $title, $body ) {
+		foreach ( array_keys( $nodes ) as $i ) {
+			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
+				if ( '' !== (string) $title ) {
+					$nodes[ $i ]['settings']['title_text'] = $title;
+				}
+				if ( '' !== (string) $body ) {
+					$nodes[ $i ]['settings']['description_text'] = $body;
+				}
+				return true;
+			}
+			if ( ! empty( $nodes[ $i ]['elements'] ) && is_array( $nodes[ $i ]['elements'] ) ) {
+				if ( $this->set_icon_box( $nodes[ $i ]['elements'], $custom_id, $title, $body ) ) {
+					return true;
+				}
+			}
 		}
-		if ( '' !== (string) $title ) {
-			$index[ $custom_id ]['settings']['title_text'] = $title;
-		}
-		if ( '' !== (string) $body ) {
-			$index[ $custom_id ]['settings']['description_text'] = $body;
-		}
+		return false;
 	}
 
 	/**
-	 * @param array    $index
+	 * @param array    $nodes
 	 * @param string   $custom_id
 	 * @param string[] $paragraphs
+	 * @return bool
 	 */
-	private function set_editor( &$index, $custom_id, $paragraphs ) {
-		if ( empty( $index[ $custom_id ] ) || empty( $paragraphs ) ) {
-			return;
+	private function set_editor( &$nodes, $custom_id, $paragraphs ) {
+		if ( empty( $paragraphs ) ) {
+			return false;
 		}
 		$html = '';
 		foreach ( $paragraphs as $para ) {
@@ -201,34 +207,57 @@ class WTE_Template_Filler {
 			}
 			$html .= '<p>' . esc_html( $para ) . '</p>';
 		}
-		if ( '' !== $html ) {
-			$index[ $custom_id ]['settings']['editor'] = $html;
+		if ( '' === $html ) {
+			return false;
 		}
+		foreach ( array_keys( $nodes ) as $i ) {
+			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
+				$nodes[ $i ]['settings']['editor'] = $html;
+				return true;
+			}
+			if ( ! empty( $nodes[ $i ]['elements'] ) && is_array( $nodes[ $i ]['elements'] ) ) {
+				if ( $this->set_editor( $nodes[ $i ]['elements'], $custom_id, $paragraphs ) ) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/**
-	 * @param array  $index
+	 * @param array  $nodes
 	 * @param string $custom_id
 	 * @param array  $faqs
+	 * @return bool
 	 */
-	private function set_faqs( &$index, $custom_id, $faqs ) {
-		if ( empty( $index[ $custom_id ] ) || empty( $faqs ) ) {
-			return;
+	private function set_faqs( &$nodes, $custom_id, $faqs ) {
+		if ( empty( $faqs ) ) {
+			return false;
 		}
-		if ( empty( $index[ $custom_id ]['settings']['tabs'] ) || ! is_array( $index[ $custom_id ]['settings']['tabs'] ) ) {
-			return;
+		foreach ( array_keys( $nodes ) as $i ) {
+			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
+				if ( empty( $nodes[ $i ]['settings']['tabs'] ) || ! is_array( $nodes[ $i ]['settings']['tabs'] ) ) {
+					return false;
+				}
+				foreach ( $nodes[ $i ]['settings']['tabs'] as $t => $tab ) {
+					if ( empty( $faqs[ $t ] ) ) {
+						break;
+					}
+					if ( ! empty( $faqs[ $t ]['q'] ) ) {
+						$nodes[ $i ]['settings']['tabs'][ $t ]['tab_title'] = $faqs[ $t ]['q'];
+					}
+					if ( ! empty( $faqs[ $t ]['a'] ) ) {
+						$nodes[ $i ]['settings']['tabs'][ $t ]['tab_content'] = '<p>' . esc_html( $faqs[ $t ]['a'] ) . '</p>';
+					}
+				}
+				return true;
+			}
+			if ( ! empty( $nodes[ $i ]['elements'] ) && is_array( $nodes[ $i ]['elements'] ) ) {
+				if ( $this->set_faqs( $nodes[ $i ]['elements'], $custom_id, $faqs ) ) {
+					return true;
+				}
+			}
 		}
-		foreach ( $index[ $custom_id ]['settings']['tabs'] as $i => &$tab ) {
-			if ( empty( $faqs[ $i ] ) ) {
-				break;
-			}
-			if ( ! empty( $faqs[ $i ]['q'] ) ) {
-				$tab['tab_title'] = $faqs[ $i ]['q'];
-			}
-			if ( ! empty( $faqs[ $i ]['a'] ) ) {
-				$tab['tab_content'] = '<p>' . esc_html( $faqs[ $i ]['a'] ) . '</p>';
-			}
-		}
-		unset( $tab );
+		return false;
 	}
 }

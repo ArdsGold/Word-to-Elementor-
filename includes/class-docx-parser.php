@@ -126,7 +126,7 @@ class WTE_Docx_Parser {
 			}
 
 			if ( 2 === $level ) {
-				$current_key = $this->match_h2( $text );
+				$current_key = $this->match_h2( $text, $headings, $section_items );
 				if ( isset( $headings[ $current_key ] ) ) {
 					$headings[ $current_key ] = $this->strip_heading_prefix( $text );
 				}
@@ -136,6 +136,11 @@ class WTE_Docx_Parser {
 
 			if ( 3 === $level ) {
 				$pending_h3 = $this->strip_heading_prefix( $text );
+				if ( 'closing' === $current_key ) {
+					if ( '' === $headings['closing'] ) {
+						$headings['closing'] = $pending_h3;
+					}
+				}
 				continue;
 			}
 
@@ -202,9 +207,11 @@ class WTE_Docx_Parser {
 
 	/**
 	 * @param string $text
+	 * @param array  $headings
+	 * @param array  $section_items
 	 * @return string services|why|process|faq|closing|hero
 	 */
-	private function match_h2( $text ) {
+	private function match_h2( $text, $headings = array(), $section_items = array() ) {
 		$key = $this->normalize_label( $this->strip_heading_prefix( $text ) );
 
 		if ( false !== strpos( $key, 'service' ) ) {
@@ -219,11 +226,39 @@ class WTE_Docx_Parser {
 		if ( false !== strpos( $key, 'faq' ) ) {
 			return 'faq';
 		}
-		if ( false !== strpos( $key, 'closing' ) ) {
+		if ( $this->is_closing_label( $key ) ) {
+			return 'closing';
+		}
+
+		$faq_started = ! empty( $headings['faq'] ) || ! empty( $section_items['faq'] );
+		if ( $faq_started ) {
 			return 'closing';
 		}
 
 		return 'hero';
+	}
+
+	/**
+	 * @param string $key Normalized heading text.
+	 */
+	private function is_closing_label( $key ) {
+		$needles = array(
+			'closing',
+			'conclusion',
+			'cta',
+			'call to action',
+			'next step',
+			'get started',
+			'ready to',
+			'contact',
+			'get in touch',
+		);
+		foreach ( $needles as $needle ) {
+			if ( false !== strpos( $key, $needle ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**

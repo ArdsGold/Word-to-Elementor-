@@ -2,12 +2,12 @@
 /**
  * Plugin Name: Word to Elementor WF
  * Description: Fill a bundled Elementor page template from a Word .docx outline (Heading 1 / 2 / 3) and create a draft page.
- * Version: 1.0.0
- * Author: Arden
+ * Version: 3.0.0
+ * Author: Macky Villafuerte, Arden Guinto
  * Text Domain: word-to-elementor-wf
  * Requires at least: 6.0
  * Requires PHP: 7.4
- * Requires Plugins: elementor
+ * Requires Plugins: Elementor pro
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
