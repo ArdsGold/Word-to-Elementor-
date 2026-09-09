@@ -8,6 +8,25 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class WTE_Template_Filler {
+	private $bold_phone_links = false;
+	private $underline_phone_links = false;
+	private $bold_words = false;
+	private $underline_words = false;
+	private $format_words = array();
+
+	/**
+	 * @param array $options Formatting options.
+	 */
+	public function __construct( $options = array() ) {
+		$this->bold_phone_links   = ! empty( $options['bold_phone_links'] );
+		$this->underline_phone_links = ! empty( $options['underline_phone_links'] );
+		$this->bold_words         = ! empty( $options['bold_words'] );
+		$this->underline_words    = ! empty( $options['underline_words'] );
+		$this->format_words       = ! empty( $options['format_words'] ) && is_array( $options['format_words'] )
+			? array_values( array_filter( array_map( 'trim', $options['format_words'] ) ) )
+			: array();
+	}
+
 	const HERO_TITLE       = 'HeroH1';
 	const HERO_INTRO       = 'HeroP';
 	const SERVICES_HEADING = 'Section2H2';
@@ -225,18 +244,10 @@ class WTE_Template_Filler {
 	}
 
 	/**
-	 * Convert common US phone-number formats in plain text to tel: links.
+	 * Convert phone numbers to tel: links and apply the selected formatting.
 	 *
-	 * Supported examples include:
-	 * (305) 555-5555
-	 * +1 305 555 5555
-	 * 305-555-5555
-	 * 305 555 5555
-	 * 305.555.5555
-	 * 3055555555
-	 * 1-305-555-5555
-	 *
-	 * The href contains digits only, e.g. tel:3055555555.
+	 * The href contains digits only. Custom words are entered as a
+	 * comma-separated list and are formatted case-insensitively.
 	 *
 	 * @param string $text
 	 * @return string
@@ -244,45 +255,102 @@ class WTE_Template_Filler {
 	private function phone_links( $text ) {
 		$text = (string) $text;
 
-		/*
-		 * Match either:
-		 *  - an optional country code (1 / +1) followed by a 10-digit US number, or
-		 *  - a plain 10-digit US number.
-		 *
-		 * Separators between digit groups may be spaces, hyphens, dots, or
-		 * parentheses. Boundaries prevent matching a substring of a longer number.
-		 */
-		$pattern = '/(?<![\\d])(?:\\+?1[\\s.\\-]*)?(?:\\(\\d{3}\\)[\\s.\\-]*|\\d{3}[\\s.\\-]+)\\d{3}[\\s.\\-]+\\d{4}(?!\\d)|(?<![\\d])(?:\\+?1[\\s.\\-]*)?\\d{10}(?!\\d)/u';
+		$pattern = '/(?<![\d])(?:\+?1[\s.\-]*)?(?:\(\d{3}\)[\s.\-]*|\d{3}[\s.\-]+)\d{3}[\s.\-]+\d{4}(?!\d)|(?<![\d])(?:\+?1[\s.\-]*)?\d{10}(?!\d)/u';
 
 		$result = '';
 		$offset = 0;
 
 		if ( preg_match_all( $pattern, $text, $matches, PREG_OFFSET_CAPTURE ) ) {
 			foreach ( $matches[0] as $match ) {
-			$phone = $match[0];
-			$byte_offset = $match[1];
+				$phone       = $match[0];
+				$byte_offset = $match[1];
 
-			$result .= esc_html( substr( $text, $offset, $byte_offset - $offset ) );
+				$result .= $this->format_words_in_plain_text(
+					substr( $text, $offset, $byte_offset - $offset )
+				);
 
-			$digits = preg_replace( '/\\D+/', '', $phone );
-			if ( 11 === strlen( $digits ) && '1' === $digits[0] ) {
-				$digits = substr( $digits, 1 );
-			}
+				$digits = preg_replace( '/\D+/', '', $phone );
+				if ( 11 === strlen( $digits ) && '1' === $digits[0] ) {
+					$digits = substr( $digits, 1 );
+				}
 
-			if ( 10 === strlen( $digits ) ) {
-				$result .= '<a href="tel:' . esc_attr( $digits ) . '">' . esc_html( $phone ) . '</a>';
-			} else {
-				$result .= esc_html( $phone );
-			}
+				if ( 10 === strlen( $digits ) ) {
+					$visible = esc_html( $phone );
+					$visible = $this->wrap_formatting( $visible, $this->bold_phone_links, $this->underline_phone_links );
+					$result .= '<a href="tel:' . esc_attr( $digits ) . '">' . $visible . '</a>';
+				} else {
+					$result .= $this->format_words_in_plain_text( $phone );
+				}
 
-			$offset = $byte_offset + strlen( $phone );
+				$offset = $byte_offset + strlen( $phone );
 			}
 		}
 
-		$result .= esc_html( substr( $text, $offset ) );
+		$result .= $this->format_words_in_plain_text( substr( $text, $offset ) );
 
 		return $result;
 	}
+
+	/**
+	 * Apply bold/underline to configured words or phrases in escaped plain text.
+	 *
+	 * The textbox accepts comma-separated words or phrases, e.g.
+	 * "roof repair, emergency service, licensed".
+	 *
+	 * @param string $text
+	 * @return string
+	 */
+	private function format_words_in_plain_text( $text ) {
+		$escaped = esc_html( (string) $text );
+
+		if ( empty( $this->format_words ) || ( ! $this->bold_words && ! $this->underline_words ) ) {
+			return $escaped;
+		}
+
+		$patterns = array();
+		foreach ( $this->format_words as $word ) {
+			if ( '' !== $word ) {
+				$patterns[] = preg_quote( $word, '/' );
+			}
+		}
+
+		if ( empty( $patterns ) ) {
+			return $escaped;
+		}
+
+		$pattern = '/(?<![\p{L}\p{N}_])(?:' . implode( '|', $patterns ) . ')(?![\p{L}\p{N}_])/iu';
+
+		return preg_replace_callback(
+			$pattern,
+			function ( $match ) {
+				return $this->wrap_formatting(
+					$match[0],
+					$this->bold_words,
+					$this->underline_words
+				);
+			},
+			$escaped
+		);
+	}
+
+	/**
+	 * Wrap text in strong/u tags according to selected options.
+	 *
+	 * @param string $text
+	 * @param bool   $bold
+	 * @param bool   $underline
+	 * @return string
+	 */
+	private function wrap_formatting( $text, $bold, $underline ) {
+		if ( $bold ) {
+			$text = '<strong>' . $text . '</strong>';
+		}
+		if ( $underline ) {
+			$text = '<u>' . $text . '</u>';
+		}
+		return $text;
+	}
+
 
 	/**
 	 * @param array  $nodes

@@ -114,6 +114,41 @@ class WTE_Admin_Page {
 							<p class="description"><?php esc_html_e( 'Optional. Defaults to the Word Heading 1.', 'word-to-elementor-wf' ); ?></p>
 						</td>
 					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Formatting options', 'word-to-elementor-wf' ); ?></th>
+						<td>
+							<fieldset>
+								<label>
+									<input type="checkbox" name="wte_bold_phone_links" value="1" />
+									<?php esc_html_e( 'Bold phone-number hyperlinks', 'word-to-elementor-wf' ); ?>
+								</label><br />
+								<label>
+									<input type="checkbox" name="wte_underline_phone_links" value="1" />
+									<?php esc_html_e( 'Underline phone-number hyperlinks', 'word-to-elementor-wf' ); ?>
+								</label>
+							</fieldset>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="wte_format_words"><?php esc_html_e( 'Words to format', 'word-to-elementor-wf' ); ?></label>
+						</th>
+						<td>
+							<input type="text" class="large-text" id="wte_format_words" name="wte_format_words" value="" />
+							<p class="description"><?php esc_html_e( 'Enter words or phrases separated by commas. Example: roof repair, emergency service, licensed.', 'word-to-elementor-wf' ); ?></p>
+							<p>
+								<label>
+									<input type="checkbox" name="wte_bold_words" value="1" />
+									<?php esc_html_e( 'Bold these words/phrases', 'word-to-elementor-wf' ); ?>
+								</label>
+								&nbsp;&nbsp;
+								<label>
+									<input type="checkbox" name="wte_underline_words" value="1" />
+									<?php esc_html_e( 'Underline these words/phrases', 'word-to-elementor-wf' ); ?>
+								</label>
+							</p>
+						</td>
+					</tr>
 				</table>
 				<?php submit_button( __( 'Create draft page', 'word-to-elementor-wf' ), 'primary', 'wte_submit', false, $elementor_ok ? array() : array( 'disabled' => 'disabled' ) ); ?>
 			</form>
@@ -214,7 +249,19 @@ class WTE_Admin_Page {
 		$override   = isset( $_POST['wte_page_title'] ) ? sanitize_text_field( wp_unslash( $_POST['wte_page_title'] ) ) : '';
 		$page_title = '' !== $override ? $override : $outline['title'];
 
-		$filler = new WTE_Template_Filler();
+		$format_words = isset( $_POST['wte_format_words'] )
+			? sanitize_text_field( wp_unslash( $_POST['wte_format_words'] ) )
+			: '';
+
+		$format_options = array(
+			'bold_phone_links'      => ! empty( $_POST['wte_bold_phone_links'] ),
+			'underline_phone_links' => ! empty( $_POST['wte_underline_phone_links'] ),
+			'bold_words'            => ! empty( $_POST['wte_bold_words'] ),
+			'underline_words'       => ! empty( $_POST['wte_underline_words'] ),
+			'format_words'          => array_filter( array_map( 'trim', explode( ',', $format_words ) ) ),
+		);
+
+		$filler = new WTE_Template_Filler( $format_options );
 		$filled = $filler->fill( $outline );
 
 		$creator = new WTE_Page_Creator();
