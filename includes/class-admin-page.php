@@ -43,6 +43,8 @@ class WTE_Admin_Page {
 					$template_notice = __( 'Reverted to the bundled Elementor template.', 'word-to-elementor-wf' );
 				} elseif ( 'create_page' === $action ) {
 					$page_result = $this->handle_create_page();
+				} elseif ( 'create_bulk_pages' === $action ) {
+					$page_result = $this->handle_create_bulk_pages();
 				}
 			} catch ( Exception $e ) {
 				$error = $e->getMessage();
@@ -66,6 +68,43 @@ class WTE_Admin_Page {
 
 			<?php if ( $template_notice ) : ?>
 				<div class="notice notice-success"><p><?php echo esc_html( $template_notice ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( is_array( $page_result ) && ! empty( $page_result['bulk'] ) ) : ?>
+				<div class="notice <?php echo ! empty( $page_result['errors'] ) ? 'notice-warning' : 'notice-success'; ?>">
+					<p>
+						<?php
+						echo esc_html(
+							sprintf(
+								/* translators: 1: number created, 2: number uploaded */
+								__( 'Bulk import complete: %1$d of %2$d pages created.', 'word-to-elementor-wf' ),
+								$page_result['created'],
+								$page_result['total']
+							)
+						);
+						?>
+					</p>
+					<?php if ( ! empty( $page_result['pages'] ) ) : ?>
+						<ul>
+							<?php foreach ( $page_result['pages'] as $bulk_page ) : ?>
+								<li>
+									<a href="<?php echo esc_url( $bulk_page['edit_url'] ); ?>"><?php echo esc_html( $bulk_page['title'] ); ?></a>
+									<?php if ( ! empty( $bulk_page['elementor_url'] ) ) : ?>
+										— <a href="<?php echo esc_url( $bulk_page['elementor_url'] ); ?>"><?php esc_html_e( 'Edit with Elementor', 'word-to-elementor-wf' ); ?></a>
+									<?php endif; ?>
+								</li>
+							<?php endforeach; ?>
+						</ul>
+					<?php endif; ?>
+					<?php if ( ! empty( $page_result['errors'] ) ) : ?>
+						<p><strong><?php esc_html_e( 'Files that could not be imported:', 'word-to-elementor-wf' ); ?></strong></p>
+						<ul>
+							<?php foreach ( $page_result['errors'] as $bulk_error ) : ?>
+								<li><?php echo esc_html( $bulk_error['file'] . ': ' . $bulk_error['message'] ); ?></li>
+							<?php endforeach; ?>
+						</ul>
+					<?php endif; ?>
+				</div>
 			<?php endif; ?>
 
 			<?php if ( $page_result ) : ?>
@@ -155,6 +194,57 @@ class WTE_Admin_Page {
 
 			<hr />
 
+			<h2><?php esc_html_e( 'Bulk create pages from Word', 'word-to-elementor-wf' ); ?></h2>
+			<p><?php esc_html_e( 'Select multiple .docx files. Each file becomes its own draft page using the same Elementor template and formatting options above.', 'word-to-elementor-wf' ); ?></p>
+			<form method="post" enctype="multipart/form-data">
+				<?php wp_nonce_field( 'wte_admin', 'wte_nonce' ); ?>
+				<input type="hidden" name="wte_action" value="create_bulk_pages" />
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row">
+							<label for="wte_bulk_docx"><?php esc_html_e( 'Word documents', 'word-to-elementor-wf' ); ?></label>
+						</th>
+						<td>
+							<input type="file" id="wte_bulk_docx" name="wte_bulk_docx[]" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple required />
+							<p class="description"><?php esc_html_e( 'Select as many .docx files as you want to process. The Heading 1 in each document becomes that page’s title unless a title override is used in the document workflow.', 'word-to-elementor-wf' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Formatting options', 'word-to-elementor-wf' ); ?></th>
+						<td>
+							<fieldset>
+								<label>
+									<input type="checkbox" name="wte_bulk_bold_phone_links" value="1" />
+									<?php esc_html_e( 'Bold phone-number hyperlinks', 'word-to-elementor-wf' ); ?>
+								</label><br />
+								<label>
+									<input type="checkbox" name="wte_bulk_underline_phone_links" value="1" />
+									<?php esc_html_e( 'Underline phone-number hyperlinks', 'word-to-elementor-wf' ); ?>
+								</label>
+							</fieldset>
+							<p>
+								<label for="wte_bulk_format_words"><?php esc_html_e( 'Words/phrases to format:', 'word-to-elementor-wf' ); ?></label><br />
+								<input type="text" class="large-text" id="wte_bulk_format_words" name="wte_bulk_format_words" value="" />
+							</p>
+							<p>
+								<label>
+									<input type="checkbox" name="wte_bulk_bold_words" value="1" />
+									<?php esc_html_e( 'Bold these words/phrases', 'word-to-elementor-wf' ); ?>
+								</label>
+								&nbsp;&nbsp;
+								<label>
+									<input type="checkbox" name="wte_bulk_underline_words" value="1" />
+									<?php esc_html_e( 'Underline these words/phrases', 'word-to-elementor-wf' ); ?>
+								</label>
+							</p>
+						</td>
+					</tr>
+				</table>
+				<?php submit_button( __( 'Create all draft pages', 'word-to-elementor-wf' ), 'primary', 'wte_bulk_submit', false, $elementor_ok ? array() : array( 'disabled' => 'disabled' ) ); ?>
+			</form>
+
+			<hr />
+
 			<h2><?php esc_html_e( 'Elementor template', 'word-to-elementor-wf' ); ?></h2>
 			<p>
 				<?php if ( $using_custom ) : ?>
@@ -191,6 +281,94 @@ class WTE_Admin_Page {
 			<?php endif; ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Create one draft Elementor page for every uploaded .docx file.
+	 *
+	 * @return array
+	 * @throws Exception
+	 */
+	private function handle_create_bulk_pages() {
+		if ( ! defined( 'ELEMENTOR_VERSION' ) && ! did_action( 'elementor/loaded' ) ) {
+			throw new Exception( __( 'Elementor must be installed and active.', 'word-to-elementor-wf' ) );
+		}
+
+		if ( empty( $_FILES['wte_bulk_docx']['tmp_name'] ) || ! is_array( $_FILES['wte_bulk_docx']['tmp_name'] ) ) {
+			throw new Exception( __( 'Please select one or more .docx files.', 'word-to-elementor-wf' ) );
+		}
+
+		$format_words = isset( $_POST['wte_bulk_format_words'] )
+			? sanitize_text_field( wp_unslash( $_POST['wte_bulk_format_words'] ) )
+			: '';
+
+		$format_options = array(
+			'bold_phone_links'      => ! empty( $_POST['wte_bulk_bold_phone_links'] ),
+			'underline_phone_links' => ! empty( $_POST['wte_bulk_underline_phone_links'] ),
+			'bold_words'            => ! empty( $_POST['wte_bulk_bold_words'] ),
+			'underline_words'       => ! empty( $_POST['wte_bulk_underline_words'] ),
+			'format_words'          => array_filter( array_map( 'trim', explode( ',', $format_words ) ) ),
+		);
+
+		$parser  = new WTE_Docx_Parser();
+		$creator = new WTE_Page_Creator();
+		$pages   = array();
+		$errors  = array();
+		$total   = count( $_FILES['wte_bulk_docx']['tmp_name'] );
+
+		foreach ( $_FILES['wte_bulk_docx']['tmp_name'] as $i => $tmp_path ) {
+			$name = isset( $_FILES['wte_bulk_docx']['name'][ $i ] )
+				? sanitize_file_name( wp_unslash( $_FILES['wte_bulk_docx']['name'][ $i ] ) )
+				: 'Document ' . ( $i + 1 );
+
+			try {
+				if ( empty( $tmp_path ) ) {
+					throw new Exception( __( 'The upload is empty.', 'word-to-elementor-wf' ) );
+				}
+
+				if ( ! empty( $_FILES['wte_bulk_docx']['error'][ $i ] ) ) {
+					throw new Exception( __( 'The file upload failed.', 'word-to-elementor-wf' ) );
+				}
+
+				$ext = strtolower( pathinfo( $name, PATHINFO_EXTENSION ) );
+				if ( 'docx' !== $ext ) {
+					throw new Exception( __( 'Only .docx files are supported.', 'word-to-elementor-wf' ) );
+				}
+
+				$outline = $parser->parse( $tmp_path );
+				if ( '' === $outline['title'] ) {
+					throw new Exception( __( 'The document is missing a Heading 1 page title.', 'word-to-elementor-wf' ) );
+				}
+
+				$filler = new WTE_Template_Filler( $format_options );
+				$filled = $filler->fill( $outline );
+				$post_id = $creator->create( $filled, $outline['title'] );
+
+				$elementor_url = '';
+				if ( class_exists( '\Elementor\Plugin' ) ) {
+					$elementor_url = admin_url( 'post.php?post=' . $post_id . '&action=elementor' );
+				}
+
+				$pages[] = array(
+					'title'         => $outline['title'],
+					'edit_url'      => get_edit_post_link( $post_id, 'raw' ),
+					'elementor_url' => $elementor_url,
+				);
+			} catch ( Exception $e ) {
+				$errors[] = array(
+					'file'    => $name,
+					'message' => $e->getMessage(),
+				);
+			}
+		}
+
+		return array(
+			'bulk'    => true,
+			'created' => count( $pages ),
+			'total'   => $total,
+			'pages'   => $pages,
+			'errors'  => $errors,
+		);
 	}
 
 	/**
