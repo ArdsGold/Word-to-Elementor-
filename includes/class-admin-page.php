@@ -210,6 +210,16 @@ class WTE_Admin_Page {
 						</td>
 					</tr>
 					<tr>
+						<th scope="row"><?php esc_html_e( 'Publishing options', 'word-to-elementor-wf' ); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="wte_bulk_publish" value="1" />
+								<?php esc_html_e( 'Publish pages immediately after creation', 'word-to-elementor-wf' ); ?>
+							</label>
+							<p class="description"><?php esc_html_e( 'When checked, successfully created pages will be published immediately instead of saved as drafts.', 'word-to-elementor-wf' ); ?></p>
+						</td>
+					</tr>
+					<tr>
 						<th scope="row"><?php esc_html_e( 'Formatting options', 'word-to-elementor-wf' ); ?></th>
 						<td>
 							<fieldset>
@@ -302,6 +312,8 @@ class WTE_Admin_Page {
 			? sanitize_text_field( wp_unslash( $_POST['wte_bulk_format_words'] ) )
 			: '';
 
+		$publish_immediately = ! empty( $_POST['wte_bulk_publish'] );
+
 		$format_options = array(
 			'bold_phone_links'      => ! empty( $_POST['wte_bulk_bold_phone_links'] ),
 			'underline_phone_links' => ! empty( $_POST['wte_bulk_underline_phone_links'] ),
@@ -342,7 +354,7 @@ class WTE_Admin_Page {
 
 				$filler = new WTE_Template_Filler( $format_options );
 				$filled = $filler->fill( $outline );
-				$post_id = $creator->create( $filled, $outline['title'] );
+				$post_id = $creator->create( $filled, $outline['title'], $publish_immediately );
 
 				$elementor_url = '';
 				if ( class_exists( '\Elementor\Plugin' ) ) {

@@ -11,14 +11,15 @@ class WTE_Page_Creator {
 	/**
 	 * @param array  $filled  Result from WTE_Template_Filler::fill().
 	 * @param string $title   Page title.
+	 * @param bool   $publish Whether to publish immediately.
 	 * @return int Post ID.
 	 * @throws Exception
 	 */
-	public function create( $filled, $title ) {
+	public function create( $filled, $title, $publish = false ) {
 		$post_id = wp_insert_post(
 			array(
 				'post_title'  => $title,
-				'post_status' => 'draft',
+				'post_status' => $publish ? 'publish' : 'draft',
 				'post_type'   => 'page',
 			),
 			true
@@ -41,6 +42,19 @@ class WTE_Page_Creator {
 			if ( $document ) {
 				$document->save_template_type();
 			}
+		}
+
+		// Enforce the requested final status after Elementor metadata work.
+		// Elementor initialization can perform a save, so explicitly restore the
+		// requested publish/draft status as the final operation.
+		$final_status = $publish ? 'publish' : 'draft';
+		if ( get_post_status( $post_id ) !== $final_status ) {
+			wp_update_post(
+				array(
+					'ID'          => $post_id,
+					'post_status' => $final_status,
+				)
+			);
 		}
 
 		return (int) $post_id;
