@@ -150,7 +150,7 @@ class WTE_Template_Filler {
 		}
 		foreach ( array_keys( $nodes ) as $i ) {
 			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
-				$nodes[ $i ]['settings']['title'] = $title;
+				$nodes[ $i ]['settings']['title'] = $this->phone_links( $title );
 				return true;
 			}
 			if ( ! empty( $nodes[ $i ]['elements'] ) && is_array( $nodes[ $i ]['elements'] ) ) {
@@ -173,10 +173,10 @@ class WTE_Template_Filler {
 		foreach ( array_keys( $nodes ) as $i ) {
 			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
 				if ( '' !== (string) $title ) {
-					$nodes[ $i ]['settings']['title_text'] = $title;
+					$nodes[ $i ]['settings']['title_text'] = $this->phone_links( $title );
 				}
 				if ( '' !== (string) $body ) {
-					$nodes[ $i ]['settings']['description_text'] = $body;
+					$nodes[ $i ]['settings']['description_text'] = $this->phone_links( $body );
 				}
 				return true;
 			}
@@ -205,7 +205,7 @@ class WTE_Template_Filler {
 			if ( '' === $para ) {
 				continue;
 			}
-			$html .= '<p>' . esc_html( $para ) . '</p>';
+			$html .= '<p>' . $this->phone_links( $para ) . '</p>';
 		}
 		if ( '' === $html ) {
 			return false;
@@ -222,6 +222,66 @@ class WTE_Template_Filler {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Convert common US phone-number formats in plain text to tel: links.
+	 *
+	 * Supported examples include:
+	 * (305) 555-5555
+	 * +1 305 555 5555
+	 * 305-555-5555
+	 * 305 555 5555
+	 * 305.555.5555
+	 * 3055555555
+	 * 1-305-555-5555
+	 *
+	 * The href contains digits only, e.g. tel:3055555555.
+	 *
+	 * @param string $text
+	 * @return string
+	 */
+	private function phone_links( $text ) {
+		$text = (string) $text;
+
+		/*
+		 * Match either:
+		 *  - an optional country code (1 / +1) followed by a 10-digit US number, or
+		 *  - a plain 10-digit US number.
+		 *
+		 * Separators between digit groups may be spaces, hyphens, dots, or
+		 * parentheses. Boundaries prevent matching a substring of a longer number.
+		 */
+		$pattern = '/(?<![\\d])(?:\\+?1[\\s.\\-]*)?(?:\\(\\d{3}\\)[\\s.\\-]*|\\d{3}[\\s.\\-]+)\\d{3}[\\s.\\-]+\\d{4}(?!\\d)|(?<![\\d])(?:\\+?1[\\s.\\-]*)?\\d{10}(?!\\d)/u';
+
+		$result = '';
+		$offset = 0;
+
+		if ( preg_match_all( $pattern, $text, $matches, PREG_OFFSET_CAPTURE ) ) {
+			foreach ( $matches[0] as $match ) {
+			$phone = $match[0];
+			$byte_offset = $match[1];
+
+			$result .= esc_html( substr( $text, $offset, $byte_offset - $offset ) );
+
+			$digits = preg_replace( '/\\D+/', '', $phone );
+			if ( 11 === strlen( $digits ) && '1' === $digits[0] ) {
+				$digits = substr( $digits, 1 );
+			}
+
+			if ( 10 === strlen( $digits ) ) {
+				$result .= '<a href="tel:' . esc_attr( $digits ) . '">' . esc_html( $phone ) . '</a>';
+			} else {
+				$result .= esc_html( $phone );
+			}
+
+			$offset = $byte_offset + strlen( $phone );
+			}
+		}
+
+		$result .= esc_html( substr( $text, $offset ) );
+
+		return $result;
 	}
 
 	/**
@@ -244,10 +304,10 @@ class WTE_Template_Filler {
 						break;
 					}
 					if ( ! empty( $faqs[ $t ]['q'] ) ) {
-						$nodes[ $i ]['settings']['tabs'][ $t ]['tab_title'] = $faqs[ $t ]['q'];
+						$nodes[ $i ]['settings']['tabs'][ $t ]['tab_title'] = $this->phone_links( $faqs[ $t ]['q'] );
 					}
 					if ( ! empty( $faqs[ $t ]['a'] ) ) {
-						$nodes[ $i ]['settings']['tabs'][ $t ]['tab_content'] = '<p>' . esc_html( $faqs[ $t ]['a'] ) . '</p>';
+						$nodes[ $i ]['settings']['tabs'][ $t ]['tab_content'] = '<p>' . $this->phone_links( $faqs[ $t ]['a'] ) . '</p>';
 					}
 				}
 				return true;
