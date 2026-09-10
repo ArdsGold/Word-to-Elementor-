@@ -70,60 +70,178 @@ def hlevel(p):
 def norm(s):
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", s.lower())).strip()
 
-def classify_section(s):
-    """Recognize major section headings across common roofing copy variants."""
-    n = norm(s)
+def classify_section(text):
+    """Classify a major header by keywords, not exact phrases."""
+    n = norm(text)
     if not n:
         return None
 
-    # Closing is identified positionally by the parser after FAQ.
-    # Do not classify CTA wording here; the heading can use any wording.
+    words = set(re.findall(r"[a-z0-9]+", n))
 
-    # FAQ variants, including "Roof Leak Repair FAQs" and "FAQs About ...".
+    # FAQ
     if (
-        n.startswith("frequently asked question")
-        or n.startswith("faq")
-        or n.startswith("faqs")
-        or n.endswith(" faqs")
-        or " frequently asked questions" in n
-        or " faq" in n
+        "faq" in words
+        or "faqs" in words
+        or ("frequently" in words and "questions" in words)
     ):
         return "faq"
 
-    # Process variants.
-    if (
-        "process" in n
-        or "installation process" in n
-        or n.endswith(" procedure")
-        or n == "procedure"
-        or n.startswith("our process")
-    ):
+    # Process
+    if words & {"process", "procedure", "workflow"}:
         return "process"
 
-    # Why variants.
-    if (
-        n.startswith("why choose")
-        or n.startswith("why hire")
-        or n.startswith("why do people")
-        or n in {"why us", "why choose us"}
-    ):
+    # Why
+    if "why" in words:
         return "why"
 
-    # Services variants.
-    if (
-        "services" in n
-        or n.endswith(" service")
-        or n in {"services", "our services", "roofing services"}
-    ) and not any(x in n for x in ("process", "faq", "question")):
+    # Services
+    if words & {"service", "services", "solutions"}:
         return "services"
 
     return None
 
+
+
+def _infer_text_heading_level(paragraphs, idx):
+    """Infer structural heading levels for documents with no Word heading styles."""
+    text = ptext(paragraphs[idx]).strip()
+    if not text:
+        return 0
+    low = norm(text)
+    words = set(re.findall(r"[a-z0-9]+", low))
+
+    if idx == 0:
+        return 1
+
+    # Strong major-section signals.
+    if ("frequently" in words and "questions" in words) or "faq" in words or "faqs" in words:
+        return 1
+    if "why" in words:
+        return 1
+    if words & {"process", "procedure", "workflow"}:
+        return 1
+    if words & {"services", "solutions"}:
+        return 1
+
+    # FAQ questions are item headings. They are handled again after the FAQ
+    # section is located so "Why..." FAQ questions never become Section 3.
+    if text.endswith("?") and len(text) <= 120:
+        return 2
+
+    # Conservative item-heading inference.
+    if len(text) <= 80 and len(text.split()) <= 12:
+        nxt = ptext(paragraphs[idx + 1]).strip() if idx + 1 < len(paragraphs) else ""
+        if (not re.search(r"[.!;:,]$", text)
+                and not re.match(
+                    r"^(we|our|our team|this|these|the|if|when|after|before|"
+                    r"once|proper|regular|many|some|you|your|call|contact|"
+                    r"don't|do not|a |an |to )\b", text, re.I)
+                and len(nxt) >= 45):
+            return 2
+    return 0
+
+
 def read_rows(path):
     d = Document(str(path))
-    rows = [(hlevel(p), ptext(p)) for p in d.paragraphs if ptext(p)]
-    if not rows:
+    paragraphs = [p for p in d.paragraphs if ptext(p)]
+    if not paragraphs:
         raise ValueError(f"No readable paragraphs in {path}")
+
+    # Prefer genuine Word heading styles whenever the source contains them.
+    if any(hlevel(p) in (1, 2, 3) for p in paragraphs):
+        return [(hlevel(p), ptext(p)) for p in paragraphs]
+
+    # Text-only fallback: infer the structure from semantic section labels,
+    # FAQ question punctuation, and the short title-like lines surrounding
+    # those structures.
+    rows = [(0, ptext(p)) for p in paragraphs]
+    rows[0] = (1, rows[0][1])
+
+    def words_at(i):
+        return set(re.findall(r"[a-z0-9]+", norm(rows[i][1])))
+
+    def is_major(i, kind):
+        w = words_at(i)
+        if kind == "why":
+            return "why" in w and not rows[i][1].strip().endswith("?")
+        if kind == "process":
+            return bool(w & {"process", "procedure", "workflow"})
+        if kind == "faq":
+            return (
+                ("frequently" in w and "questions" in w)
+                or bool(w & {"faq", "faqs"})
+            )
+        return False
+
+    why_idx = next((i for i in range(1, len(rows)) if is_major(i, "why")), None)
+    process_idx = next(
+        (i for i in range((why_idx or 0) + 1, len(rows))
+         if is_major(i, "process")), None
+    )
+    faq_idx = next(
+        (i for i in range((process_idx or 0) + 1, len(rows))
+         if is_major(i, "faq")), None
+    )
+
+    # If the major Why heading itself ends with "?", recognize the canonical
+    # "Why Choose Us..." form without mistaking FAQ questions for it.
+    if why_idx is None:
+        why_idx = next(
+            (i for i in range(1, len(rows))
+             if re.search(r"\bwhy\s+choose\s+us\b", norm(rows[i][1]))),
+            None
+        )
+
+    # Mark major sections.
+    for idx in (why_idx, process_idx, faq_idx):
+        if idx is not None:
+            rows[idx] = (1, rows[idx][1])
+
+    # Infer service/item headings before Why.
+    if why_idx is not None:
+        for i in range(1, why_idx):
+            if rows[i][0] == 0:
+                rows[i] = (_infer_text_heading_level(paragraphs, i), rows[i][1])
+
+    # Infer Why and Process item headings.
+    if why_idx is not None:
+        end = process_idx if process_idx is not None else len(rows)
+        for i in range(why_idx + 1, end):
+            if rows[i][0] == 0:
+                rows[i] = (_infer_text_heading_level(paragraphs, i), rows[i][1])
+
+    if process_idx is not None:
+        end = faq_idx if faq_idx is not None else len(rows)
+        for i in range(process_idx + 1, end):
+            if rows[i][0] == 0:
+                rows[i] = (_infer_text_heading_level(paragraphs, i), rows[i][1])
+
+    # FAQ questions are explicitly questions. This prevents "Why..." FAQ
+    # questions from ever being interpreted as the major Why section.
+    closing_idx = None
+    if faq_idx is not None:
+        faq_count = 0
+        for i in range(faq_idx + 1, len(rows)):
+            text = rows[i][1].strip()
+
+            if text.endswith("?") and len(text) <= 120:
+                rows[i] = (2, text)
+                faq_count += 1
+                continue
+
+            if faq_count >= MAX_ITEMS["faq"]:
+                # The answer to FAQ #6 is usually a long paragraph. The next
+                # short, title-like paragraph is the closing CTA heading.
+                if (len(text) <= 100 and len(text.split()) <= 14
+                        and not re.search(r"[.!;:,]$", text)):
+                    closing_idx = i
+                    rows[i] = (1, text)
+                    break
+
+    if closing_idx is not None:
+        for i in range(closing_idx + 1, len(rows)):
+            rows[i] = (0, rows[i][1])
+
     return rows
 
 def collect_body(rows, i):
@@ -134,149 +252,150 @@ def collect_body(rows, i):
     return out, i
 
 def parse_outline(path):
-    """Parse flexible roofing DOCX layouts into the fixed Elementor slots.
-
-    The parser uses Heading 1 as the preferred major-section boundary.
-    Services is also allowed to be Heading 2 because some source documents
-    use an H2 for the Services heading while other documents use H1.
-
-    The hero may contain an H2 subtitle, so an H2 containing the word
-    "services" is NOT automatically treated as Services if it appears as
-    hero copy before the actual Services boundary.
-    """
+    """Parse a source DOCX using headers plus document structure."""
     rows = read_rows(path)
-    if not rows:
-        raise ValueError("No readable paragraphs found.")
-
     o = Outline()
     o.title = rows[0][1]
 
-    # ---- Find Services boundary ----
-    # Find the Services heading structurally, not merely by wording.
-    #
-    # A CTA heading at the end can contain the word "Services", so choosing
-    # the first H1 that matches "services" is unsafe. Instead, a Services
-    # candidate must be followed by at least four item headings before the
-    # next major H1. This also supports documents where Services is H2/H3.
+    # Find the major sections first. These searches are limited by order, not
+    # by H1/H2/H3 level, because source templates use mixed heading levels.
+    def find_classified(start, section):
+        for i in range(start, len(rows)):
+            level, text = rows[i]
+            if level in (1, 2, 3) and classify_section(text) == section:
+                return i
+        return None
+
+    why_i = find_classified(1, "why")
+    if why_i is None:
+        raise ValueError(
+            "Could not identify major section(s): why. "
+            "Headings found after title: " +
+            " | ".join(text for level, text in rows[1:] if level > 0)
+        )
+
+    process_i = find_classified(why_i + 1, "process")
+    if process_i is None:
+        raise ValueError(
+            "Could not identify major section(s): process. "
+            "Headings found after Why: " +
+            " | ".join(text for level, text in rows[why_i:] if level > 0)
+        )
+
+    faq_i = find_classified(process_i + 1, "faq")
+    if faq_i is None:
+        raise ValueError(
+            "Could not identify major section(s): faq. "
+            "Headings found after Process: " +
+            " | ".join(text for level, text in rows[process_i:] if level > 0)
+        )
+
+    # Services are either:
+    #   A) a dedicated Services heading followed by four item headings, or
+    #   B) four item headings immediately after the hero/title, with no
+    #      dedicated Services heading.  Crucially, only headings BEFORE Why
+    #      are considered, so "Reliable Service" in the Why section cannot
+    #      become the Services boundary.
     services_i = None
+    services_title = None
 
-    for j in range(1, len(rows)):
-        level, txt = rows[j]
-        if level not in (1, 2, 3):
+    for i in range(1, why_i):
+        level, text = rows[i]
+        if level not in (1, 2, 3) or classify_section(text) != "services":
             continue
-        if classify_section(txt) != "services":
-            continue
-
-        # Count headings belonging to this candidate's section until the
-        # next H1. The fixed Elementor template requires four service items.
-        item_count = 0
-        for k in range(j + 1, len(rows)):
-            next_level, next_txt = rows[k]
-            if next_level == 1:
-                break
-            if next_level in (2, 3):
-                item_count += 1
-
-        if item_count >= MAX_ITEMS["services"]:
-            services_i = j
+        count = sum(1 for j in range(i + 1, why_i) if rows[j][0] in (2, 3))
+        if count >= MAX_ITEMS["services"]:
+            services_i = i
+            services_title = text
             break
 
-    if services_i is None:
-        raise ValueError(
-            "Could not find a structurally valid Services section after "
-            "the page title."
-        )
-
-    # Hero = everything between page-title H1 and Services boundary.
-    for level, txt in rows[1:services_i]:
-        if txt:
-            o.hero.append(txt)
-
-    o.section_titles["services"] = rows[services_i][1]
-
-    # ---- Find remaining major section boundaries ----
-    # For sections after Services, require H1. This prevents an internal H2
-    # such as "Professional Roof Repairs" from being mistaken for Process.
-    expected = ["why", "process", "faq"]
-    boundaries = {"services": services_i}
-    search_from = services_i + 1
-
-    # Identify named major sections by their H1 headings.
-    for sec in expected:
-        found = None
-        for j in range(search_from, len(rows)):
-            level, txt = rows[j]
-            if level == 1 and classify_section(txt) == sec:
-                found = j
-                break
-        if found is None:
-            headings = [txt for level, txt in rows[services_i:] if level > 0]
+    implicit_services = services_i is None
+    if implicit_services:
+        service_headers = [
+            i for i in range(1, why_i) if rows[i][0] in (2, 3)
+        ]
+        if len(service_headers) != MAX_ITEMS["services"]:
             raise ValueError(
-                f"Could not identify major section(s): {sec}. "
-                f"Headings found after Services: " + " | ".join(headings)
+                "Could not identify the Services section. "
+                f"Found {len(service_headers)} item headings before Why; "
+                f"expected {MAX_ITEMS['services']}."
             )
-        boundaries[sec] = found
-        search_from = found + 1
+        services_start = service_headers[0]
+        services_end = why_i
 
-    # Closing is position-based: the first H1 after the FAQ section is
-    # the closing/CTA heading, regardless of its wording.
-    faq_i = boundaries["faq"]
+        # No Services header exists in these documents. Create the heading
+        # expected by the Elementor Section2H2 field from the document title.
+        base = re.sub(r"\s+in\s+.+$", "", o.title, flags=re.I).strip()
+        services_title = f"Our {base} Services"
+    else:
+        services_start = services_i
+        services_end = why_i
+
+    # Closing is determined structurally after the FAQ section. After six
+    # FAQ item headings, the next heading at any level is the closing CTA.
     closing_i = None
-    for j in range(faq_i + 1, len(rows)):
-        level, txt = rows[j]
-        if level == 1:
-            closing_i = j
+    faq_headers = 0
+    for i in range(faq_i + 1, len(rows)):
+        level, text = rows[i]
+        if level in (2, 3):
+            if faq_headers < MAX_ITEMS["faq"]:
+                faq_headers += 1
+                continue
+            closing_i = i
+            break
+        if level == 1 and faq_headers >= MAX_ITEMS["faq"]:
+            closing_i = i
             break
 
-    # Fallback for files where the closing heading is not H1:
-    # after the six FAQ item headings, the next heading is closing.
     if closing_i is None:
-        faq_item_headings = 0
-        for j in range(faq_i + 1, len(rows)):
-            level, txt = rows[j]
-            if level > 0:
-                faq_item_headings += 1
-                if faq_item_headings > 6:
-                    closing_i = j
-                    break
+        raise ValueError("Could not identify major section(s): closing.")
 
-    if closing_i is None:
-        headings = [txt for level, txt in rows[faq_i:] if level > 0]
-        raise ValueError(
-            "Could not identify major section(s): closing. "
-            "No heading was found after the FAQ items. "
-            "Headings found after FAQ: " + " | ".join(headings)
-        )
+    o.section_titles["services"] = services_title
+    o.section_titles["why"] = rows[why_i][1]
+    o.section_titles["process"] = rows[process_i][1]
+    o.section_titles["faq"] = rows[faq_i][1]
+    o.section_titles["closing"] = rows[closing_i][1]
 
-    boundaries["closing"] = closing_i
+    # Hero ends at the first service item/header. With an explicit Services
+    # heading, include that heading's preceding body as hero; with implicit
+    # Services, likewise stop before the first service item.
+    o.hero = [text for level, text in rows[1:services_start] if text.strip()]
 
-    # ---- Parse each bounded section ----
-    section_order = ["services", "why", "process", "faq", "closing"]
+    def parse_items(start_i, end_i, start_is_item=False):
+        items = []
+        current = None
+        begin = start_i if start_is_item else start_i + 1
 
-    for idx, sec in enumerate(section_order):
-        start_i = boundaries[sec]
-        end_i = (
-            boundaries[section_order[idx + 1]]
-            if idx + 1 < len(section_order)
-            else len(rows)
-        )
+        for i in range(begin, end_i):
+            level, text = rows[i]
+            if not text.strip():
+                continue
+            if level in (2, 3):
+                if current is not None:
+                    items.append(current)
+                current = Item(title=text)
+            elif current is not None:
+                current.bodies.append(text)
 
-        o.section_titles[sec] = rows[start_i][1]
-        section_rows = rows[start_i + 1:end_i]
+        if current is not None:
+            items.append(current)
+        return items
 
-        if sec == "closing":
-            for level, txt in section_rows:
-                if txt:
-                    o.closing.append(txt)
-            continue
+    o.items["services"] = parse_items(
+        services_start, services_end, start_is_item=implicit_services
+    )
+    o.items["why"] = parse_items(why_i, process_i)
+    o.items["process"] = parse_items(process_i, faq_i)
+    o.items["faq"] = parse_items(faq_i, closing_i)
+    o.closing = [text for level, text in rows[closing_i + 1:] if text.strip()]
 
-        current_item = None
-        for level, txt in section_rows:
-            if level > 0:
-                current_item = Item(txt)
-                o.items[sec].append(current_item)
-            elif current_item is not None:
-                current_item.bodies.append(txt)
+    for section in ("services", "why", "process", "faq"):
+        expected = MAX_ITEMS[section]
+        actual = len(o.items[section])
+        if actual != expected:
+            raise ValueError(
+                f"{section} contains {actual} items; expected exactly {expected}."
+            )
 
     return o
 
