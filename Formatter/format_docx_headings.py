@@ -71,26 +71,50 @@ def norm(s):
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", s.lower())).strip()
 
 def classify_section(s):
+    """Recognize section headings by meaning, not one exact phrase.
+
+    The source DOCX files use different but equivalent headings, e.g.
+    "Emergency Roof Repair Services" and "Our Emergency Roof Repair Process".
+    Section boundaries must therefore be detected from keywords.
+    """
     n = norm(s)
     if not n:
         return None
-    if n.startswith("frequently asked questions") or n in {"faq", "faqs", "frequently asked questions"}:
-        return "faq"
+
+    # Closing sections must be checked before FAQ because a closing H1 can
+    # otherwise be swallowed as another FAQ question.
     if (
-        n.startswith("our process")
-        or n == "process"
-        or n.endswith(" installation process")
-        or n == "installation process"
+        "closing" in n
+        or n.startswith("upgrade your")
+        or n.startswith("protect your")
+        or n.startswith("contact us")
+        or n.startswith("get started")
+        or n.startswith("schedule your")
+        or n.startswith("call us")
     ):
-        return "process"
-    if n.startswith("why choose") or n.startswith("why do people") or n in {"why us", "why choose us"}:
-        return "why"
-    if "closing" in n or n.startswith("upgrade your"):
         return "closing"
-    if n in {"services", "our services", "our services and others", "services and others"}:
+
+    if (
+        n.startswith("frequently asked questions")
+        or n in {"faq", "faqs"}
+    ):
+        return "faq"
+
+    if "process" in n or "installation process" in n:
+        return "process"
+
+    if (
+        n.startswith("why choose")
+        or n.startswith("why do people")
+        or n in {"why us", "why choose us"}
+    ):
+        return "why"
+
+    # Any heading whose main purpose is to introduce a collection of
+    # services is a Services section, regardless of the leading adjective.
+    if "services" in n and not any(x in n for x in ("process", "faq", "question")):
         return "services"
-    if n.endswith(" services") and n.split()[0] in {"our", "the"}:
-        return "services"
+
     return None
 
 def read_rows(path):
