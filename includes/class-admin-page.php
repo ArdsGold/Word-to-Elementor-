@@ -76,44 +76,49 @@ class WTE_Admin_Page {
 						<?php
 						echo esc_html(
 							sprintf(
-								/* translators: 1: number created, 2: number uploaded */
 								__( 'Bulk import complete: %1$d of %2$d pages created.', 'word-to-elementor-wf' ),
-								$page_result['created'],
-								$page_result['total']
+								isset( $page_result['created'] ) ? (int) $page_result['created'] : 0,
+								isset( $page_result['total'] ) ? (int) $page_result['total'] : 0
 							)
 						);
 						?>
 					</p>
-					<?php if ( ! empty( $page_result['pages'] ) ) : ?>
+					<?php if ( ! empty( $page_result['pages'] ) && is_array( $page_result['pages'] ) ) : ?>
 						<ul>
 							<?php foreach ( $page_result['pages'] as $bulk_page ) : ?>
+								<?php
+								$bulk_title         = isset( $bulk_page['title'] ) ? $bulk_page['title'] : __( 'Untitled page', 'word-to-elementor-wf' );
+								$bulk_edit_url      = isset( $bulk_page['edit_url'] ) ? $bulk_page['edit_url'] : '';
+								$bulk_elementor_url = isset( $bulk_page['elementor_url'] ) ? $bulk_page['elementor_url'] : '';
+								?>
 								<li>
-									<a href="<?php echo esc_url( $bulk_page['edit_url'] ); ?>"><?php echo esc_html( $bulk_page['title'] ); ?></a>
-									<?php if ( ! empty( $bulk_page['elementor_url'] ) ) : ?>
-										— <a href="<?php echo esc_url( $bulk_page['elementor_url'] ); ?>"><?php esc_html_e( 'Edit with Elementor', 'word-to-elementor-wf' ); ?></a>
+									<?php if ( $bulk_edit_url ) : ?>
+										<a href="<?php echo esc_url( $bulk_edit_url ); ?>"><?php echo esc_html( $bulk_title ); ?></a>
+									<?php else : ?>
+										<?php echo esc_html( $bulk_title ); ?>
+									<?php endif; ?>
+									<?php if ( $bulk_elementor_url ) : ?>
+										— <a href="<?php echo esc_url( $bulk_elementor_url ); ?>"><?php esc_html_e( 'Edit with Elementor', 'word-to-elementor-wf' ); ?></a>
 									<?php endif; ?>
 								</li>
 							<?php endforeach; ?>
 						</ul>
 					<?php endif; ?>
-					<?php if ( ! empty( $page_result['errors'] ) ) : ?>
+					<?php if ( ! empty( $page_result['errors'] ) && is_array( $page_result['errors'] ) ) : ?>
 						<p><strong><?php esc_html_e( 'Files that could not be imported:', 'word-to-elementor-wf' ); ?></strong></p>
 						<ul>
 							<?php foreach ( $page_result['errors'] as $bulk_error ) : ?>
-								<li><?php echo esc_html( $bulk_error['file'] . ': ' . $bulk_error['message'] ); ?></li>
+								<li><?php echo esc_html( ( isset( $bulk_error['file'] ) ? $bulk_error['file'] : __( 'Unknown file', 'word-to-elementor-wf' ) ) . ': ' . ( isset( $bulk_error['message'] ) ? $bulk_error['message'] : __( 'Unknown error', 'word-to-elementor-wf' ) ) ); ?></li>
 							<?php endforeach; ?>
 						</ul>
 					<?php endif; ?>
 				</div>
-			<?php endif; ?>
-
-			<?php if ( $page_result ) : ?>
+			<?php elseif ( is_array( $page_result ) && isset( $page_result['title'] ) ) : ?>
 				<div class="notice notice-success">
 					<p>
 						<?php
 						echo esc_html(
 							sprintf(
-								/* translators: %s: page title */
 								__( 'Draft page created: %s', 'word-to-elementor-wf' ),
 								$page_result['title']
 							)
@@ -121,7 +126,9 @@ class WTE_Admin_Page {
 						?>
 					</p>
 					<p>
-						<a href="<?php echo esc_url( $page_result['edit_url'] ); ?>"><?php esc_html_e( 'Edit page', 'word-to-elementor-wf' ); ?></a>
+						<?php if ( ! empty( $page_result['edit_url'] ) ) : ?>
+							<a href="<?php echo esc_url( $page_result['edit_url'] ); ?>"><?php esc_html_e( 'Edit page', 'word-to-elementor-wf' ); ?></a>
+						<?php endif; ?>
 						<?php if ( ! empty( $page_result['elementor_url'] ) ) : ?>
 							|
 							<a href="<?php echo esc_url( $page_result['elementor_url'] ); ?>"><?php esc_html_e( 'Edit with Elementor', 'word-to-elementor-wf' ); ?></a>

@@ -214,22 +214,60 @@ class WTE_Docx_Parser {
 	private function match_h2( $text, $headings = array(), $section_items = array() ) {
 		$key = $this->normalize_label( $this->strip_heading_prefix( $text ) );
 
-		if ( false !== strpos( $key, 'service' ) ) {
+		/*
+		 * Match section headings by meaning/synonyms rather than requiring
+		 * the exact template label. This is important for natural DOCX
+		 * headings such as "Frequently Asked Questions" instead of "FAQ".
+		 */
+
+		// Services section.
+		if (
+			false !== strpos( $key, 'service' ) ||
+			false !== strpos( $key, 'what we do' ) ||
+			false !== strpos( $key, 'our offerings' )
+		) {
 			return 'services';
 		}
-		if ( false !== strpos( $key, 'why' ) ) {
+
+		// Why-choose-us section.
+		if (
+			false !== strpos( $key, 'why' ) ||
+			false !== strpos( $key, 'benefit' ) ||
+			false !== strpos( $key, 'advantage' )
+		) {
 			return 'why';
 		}
-		if ( false !== strpos( $key, 'process' ) ) {
+
+		// Process/how-we-work section.
+		if (
+			false !== strpos( $key, 'process' ) ||
+			false !== strpos( $key, 'how we work' ) ||
+			false !== strpos( $key, 'how it works' ) ||
+			false !== strpos( $key, 'what to expect' )
+		) {
 			return 'process';
 		}
-		if ( false !== strpos( $key, 'faq' ) ) {
+
+		// FAQ section: recognize abbreviations and natural-language variants.
+		if (
+			false !== strpos( $key, 'faq' ) ||
+			false !== strpos( $key, 'frequently asked question' ) ||
+			false !== strpos( $key, 'questions and answers' ) ||
+			false !== strpos( $key, 'common questions' )
+		) {
 			return 'faq';
 		}
+
+		// Explicit closing/CTA labels.
 		if ( $this->is_closing_label( $key ) ) {
 			return 'closing';
 		}
 
+		/*
+		 * Once FAQ content has started, an otherwise-unrecognized H2 is
+		 * treated as the closing section. This preserves the existing
+		 * behavior for custom final CTA headings.
+		 */
 		$faq_started = ! empty( $headings['faq'] ) || ! empty( $section_items['faq'] );
 		if ( $faq_started ) {
 			return 'closing';
