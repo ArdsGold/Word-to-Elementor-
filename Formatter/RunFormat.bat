@@ -1,17 +1,21 @@
-:: 1. Generate the region-proof timestamp filename
 @echo off
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value ^| findstr "LocalDateTime"') do set datetime=%%I
-set year=%datetime:~0,4%
-set month=%datetime:~4,2%
-set day=%datetime:~6,2%
-set hour=%datetime:~8,2%
-set minute=%datetime:~10,2%
+setlocal enabledelayedexpansion
 
-set filename=%year%-%month%-%day%_%hour%-%minute%.txt
+REM Log folder relative to this script's location
+set "logdir=%~dp0logs"
 
-:: 2. Run your command and export the WHOLE output to the file
-:: (Replace "ipconfig /all" with your actual command)
-python .\format_docx_headings.py > .\logs\"%filename%" 2>&1
+REM Create the directory if it doesn't exist
+if not exist "%logdir%" mkdir "%logdir%"
 
-echo Command output completely exported to %filename%
+REM Get a locale-independent timestamp via PowerShell
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HH-mm-ss"') do set "timestamp=%%I"
+
+set "logfile=%logdir%\log_%timestamp%.txt"
+
+echo Running command, output will be saved to: %logfile%
+
+REM ==== Replace the line below with your actual command ====
+python .\format_docx_headings.py > "%logfile%" 2>&1
+
+echo Done. Log saved as %logfile%
 pause
