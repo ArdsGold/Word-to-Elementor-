@@ -194,6 +194,29 @@ class WTE_Admin_Page {
 
 			<hr />
 
+			<h2><?php esc_html_e( 'Server upload limits', 'word-to-elementor-wf' ); ?></h2>
+			<?php
+			$wte_max_file_uploads    = ini_get( 'max_file_uploads' );
+			$wte_upload_max_filesize = ini_get( 'upload_max_filesize' );
+			$wte_post_max_size       = ini_get( 'post_max_size' );
+			$wte_max_execution_time  = ini_get( 'max_execution_time' );
+			$wte_max_input_time      = ini_get( 'max_input_time' );
+			?>
+			<table class="widefat striped" style="max-width: 760px; margin-bottom: 20px;">
+				<thead><tr>
+					<th><?php esc_html_e( 'PHP setting', 'word-to-elementor-wf' ); ?></th>
+					<th><?php esc_html_e( 'Current value', 'word-to-elementor-wf' ); ?></th>
+				</tr></thead>
+				<tbody>
+					<tr><td><code>max_file_uploads</code></td><td><strong><?php echo esc_html( $wte_max_file_uploads ? $wte_max_file_uploads : __( 'Not available', 'word-to-elementor-wf' ) ); ?></strong></td></tr>
+					<tr><td><code>upload_max_filesize</code></td><td><?php echo esc_html( $wte_upload_max_filesize ? $wte_upload_max_filesize : __( 'Not available', 'word-to-elementor-wf' ) ); ?></td></tr>
+					<tr><td><code>post_max_size</code></td><td><?php echo esc_html( $wte_post_max_size ? $wte_post_max_size : __( 'Not available', 'word-to-elementor-wf' ) ); ?></td></tr>
+					<tr><td><code>max_execution_time</code></td><td><?php echo esc_html( $wte_max_execution_time ? $wte_max_execution_time . ' seconds' : __( 'Not available', 'word-to-elementor-wf' ) ); ?></td></tr>
+					<tr><td><code>max_input_time</code></td><td><?php echo esc_html( $wte_max_input_time ? $wte_max_input_time . ' seconds' : __( 'Not available', 'word-to-elementor-wf' ) ); ?></td></tr>
+				</tbody>
+			</table>
+			<p class="description"><?php esc_html_e( 'If max_file_uploads is 20, PHP may only accept 20 files from one bulk upload request.', 'word-to-elementor-wf' ); ?></p>
+
 			<h2><?php esc_html_e( 'Bulk create pages from Word', 'word-to-elementor-wf' ); ?></h2>
 			<p><?php esc_html_e( 'Select multiple .docx files. Each file becomes its own draft page using the same Elementor template and formatting options above.', 'word-to-elementor-wf' ); ?></p>
 			<form method="post" enctype="multipart/form-data">
