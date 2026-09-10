@@ -71,48 +71,50 @@ def norm(s):
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", s.lower())).strip()
 
 def classify_section(s):
-    """Recognize section headings by meaning, not one exact phrase.
-
-    The source DOCX files use different but equivalent headings, e.g.
-    "Emergency Roof Repair Services" and "Our Emergency Roof Repair Process".
-    Section boundaries must therefore be detected from keywords.
-    """
+    """Recognize major section headings across common roofing copy variants."""
     n = norm(s)
     if not n:
         return None
 
-    # Closing sections must be checked before FAQ because a closing H1 can
-    # otherwise be swallowed as another FAQ question.
-    if (
-        "closing" in n
-        or n.startswith("upgrade your")
-        or n.startswith("protect your")
-        or n.startswith("contact us")
-        or n.startswith("get started")
-        or n.startswith("schedule your")
-        or n.startswith("call us")
-    ):
-        return "closing"
+    # Closing is identified positionally by the parser after FAQ.
+    # Do not classify CTA wording here; the heading can use any wording.
 
+    # FAQ variants, including "Roof Leak Repair FAQs" and "FAQs About ...".
     if (
-        n.startswith("frequently asked questions")
-        or n in {"faq", "faqs"}
+        n.startswith("frequently asked question")
+        or n.startswith("faq")
+        or n.startswith("faqs")
+        or n.endswith(" faqs")
+        or " frequently asked questions" in n
+        or " faq" in n
     ):
         return "faq"
 
-    if "process" in n or "installation process" in n:
+    # Process variants.
+    if (
+        "process" in n
+        or "installation process" in n
+        or n.endswith(" procedure")
+        or n == "procedure"
+        or n.startswith("our process")
+    ):
         return "process"
 
+    # Why variants.
     if (
         n.startswith("why choose")
+        or n.startswith("why hire")
         or n.startswith("why do people")
         or n in {"why us", "why choose us"}
     ):
         return "why"
 
-    # Any heading whose main purpose is to introduce a collection of
-    # services is a Services section, regardless of the leading adjective.
-    if "services" in n and not any(x in n for x in ("process", "faq", "question")):
+    # Services variants.
+    if (
+        "services" in n
+        or n.endswith(" service")
+        or n in {"services", "our services", "roofing services"}
+    ) and not any(x in n for x in ("process", "faq", "question")):
         return "services"
 
     return None
@@ -132,90 +134,167 @@ def collect_body(rows, i):
     return out, i
 
 def parse_outline(path):
+    """Parse flexible roofing DOCX layouts into the fixed Elementor slots.
+
+    The parser uses Heading 1 as the preferred major-section boundary.
+    Services is also allowed to be Heading 2 because some source documents
+    use an H2 for the Services heading while other documents use H1.
+
+    The hero may contain an H2 subtitle, so an H2 containing the word
+    "services" is NOT automatically treated as Services if it appears as
+    hero copy before the actual Services boundary.
+    """
     rows = read_rows(path)
+    if not rows:
+        raise ValueError("No readable paragraphs found.")
+
     o = Outline()
-    i = 0
+    o.title = rows[0][1]
 
-    # HeroH1
-    o.title = rows[i][1]
-    i += 1
+    # ---- Find Services boundary ----
+    # Find the Services heading structurally, not merely by wording.
+    #
+    # A CTA heading at the end can contain the word "Services", so choosing
+    # the first H1 that matches "services" is unsafe. Instead, a Services
+    # candidate must be followed by at least four item headings before the
+    # next major H1. This also supports documents where Services is H2/H3.
+    services_i = None
 
-    # AutomationTestTemplate2.0 has HeroH1 + HeroP only. A heading immediately
-    # following the H1 is therefore treated as hero copy, not a service item.
-    if i < len(rows) and rows[i][0] in (1, 2) and not classify_section(rows[i][1]):
-        o.hero.append(rows[i][1])
-        i += 1
-
-    b, i = collect_body(rows, i)
-    o.hero.extend(b)
-
-    current = None
-
-    while i < len(rows):
-        level, text = rows[i]
-        sec = classify_section(text) if level in (1, 2) else None
-
-        if sec:
-            current = sec
-            o.section_titles[sec] = text
-            i += 1
+    for j in range(1, len(rows)):
+        level, txt = rows[j]
+        if level not in (1, 2, 3):
+            continue
+        if classify_section(txt) != "services":
             continue
 
-        if current is None:
-            i += 1
-            continue
+        # Count headings belonging to this candidate's section until the
+        # next H1. The fixed Elementor template requires four service items.
+        item_count = 0
+        for k in range(j + 1, len(rows)):
+            next_level, next_txt = rows[k]
+            if next_level == 1:
+                break
+            if next_level in (2, 3):
+                item_count += 1
 
-        # Section 6: all following content is closing copy.
-        if current == "closing":
-            o.closing.append(text)
-            i += 1
-            continue
+        if item_count >= MAX_ITEMS["services"]:
+            services_i = j
+            break
 
-        # Section 5: every heading is an FAQ question; following body is answer.
-        if current == "faq":
+    if services_i is None:
+        raise ValueError(
+            "Could not find a structurally valid Services section after "
+            "the page title."
+        )
+
+    # Hero = everything between page-title H1 and Services boundary.
+    for level, txt in rows[1:services_i]:
+        if txt:
+            o.hero.append(txt)
+
+    o.section_titles["services"] = rows[services_i][1]
+
+    # ---- Find remaining major section boundaries ----
+    # For sections after Services, require H1. This prevents an internal H2
+    # such as "Professional Roof Repairs" from being mistaken for Process.
+    expected = ["why", "process", "faq"]
+    boundaries = {"services": services_i}
+    search_from = services_i + 1
+
+    # Identify named major sections by their H1 headings.
+    for sec in expected:
+        found = None
+        for j in range(search_from, len(rows)):
+            level, txt = rows[j]
+            if level == 1 and classify_section(txt) == sec:
+                found = j
+                break
+        if found is None:
+            headings = [txt for level, txt in rows[services_i:] if level > 0]
+            raise ValueError(
+                f"Could not identify major section(s): {sec}. "
+                f"Headings found after Services: " + " | ".join(headings)
+            )
+        boundaries[sec] = found
+        search_from = found + 1
+
+    # Closing is position-based: the first H1 after the FAQ section is
+    # the closing/CTA heading, regardless of its wording.
+    faq_i = boundaries["faq"]
+    closing_i = None
+    for j in range(faq_i + 1, len(rows)):
+        level, txt = rows[j]
+        if level == 1:
+            closing_i = j
+            break
+
+    # Fallback for files where the closing heading is not H1:
+    # after the six FAQ item headings, the next heading is closing.
+    if closing_i is None:
+        faq_item_headings = 0
+        for j in range(faq_i + 1, len(rows)):
+            level, txt = rows[j]
             if level > 0:
-                item = Item(text)
-                i += 1
-                b, i = collect_body(rows, i)
-                item.bodies.extend(b)
-                o.items[current].append(item)
-            else:
-                if o.items[current]:
-                    o.items[current][-1].bodies.append(text)
-                i += 1
+                faq_item_headings += 1
+                if faq_item_headings > 6:
+                    closing_i = j
+                    break
+
+    if closing_i is None:
+        headings = [txt for level, txt in rows[faq_i:] if level > 0]
+        raise ValueError(
+            "Could not identify major section(s): closing. "
+            "No heading was found after the FAQ items. "
+            "Headings found after FAQ: " + " | ".join(headings)
+        )
+
+    boundaries["closing"] = closing_i
+
+    # ---- Parse each bounded section ----
+    section_order = ["services", "why", "process", "faq", "closing"]
+
+    for idx, sec in enumerate(section_order):
+        start_i = boundaries[sec]
+        end_i = (
+            boundaries[section_order[idx + 1]]
+            if idx + 1 < len(section_order)
+            else len(rows)
+        )
+
+        o.section_titles[sec] = rows[start_i][1]
+        section_rows = rows[start_i + 1:end_i]
+
+        if sec == "closing":
+            for level, txt in section_rows:
+                if txt:
+                    o.closing.append(txt)
             continue
 
-        # Section 3 has an optional subtitle slot, but the source format
-        # uses Heading 2 entries as the actual six "Why Choose Us" items.
-        # Therefore, never consume the first heading as a subtitle merely
-        # because another heading follows it. An optional subtitle can be
-        # supplied explicitly later; by default this slot stays empty.
-
-        # Services, Why, Process: heading + following body = item.
-        if level > 0:
-            item = Item(text)
-            i += 1
-            b, i = collect_body(rows, i)
-            item.bodies.extend(b)
-            o.items[current].append(item)
-        else:
-            if o.items[current]:
-                o.items[current][-1].bodies.append(text)
-            i += 1
+        current_item = None
+        for level, txt in section_rows:
+            if level > 0:
+                current_item = Item(txt)
+                o.items[sec].append(current_item)
+            elif current_item is not None:
+                current_item.bodies.append(txt)
 
     return o
 
 def validate(o):
+    """Validate constraints imposed by the Elementor template."""
     if not o.title:
         raise ValueError("HeroH1/page title is missing.")
+
     for sec, maximum in MAX_ITEMS.items():
-        if len(o.items[sec]) > maximum:
-            raise ValueError(f"{sec} contains {len(o.items[sec])} items; template allows {maximum}.")
-        for num, item in enumerate(o.items[sec], 1):
-            if not item.bodies:
-                raise ValueError(f"{sec} item {num} ({item.title!r}) has no description/body.")
-    if o.closing and not o.section_titles["closing"]:
-        raise ValueError("Closing copy exists without Section6H2.")
+        count = len(o.items[sec])
+        if count > maximum:
+            raise ValueError(
+                f"{sec} contains {count} items; template allows {maximum}."
+            )
+
+    for sec in ("services", "why", "process", "faq", "closing"):
+        if not o.section_titles[sec]:
+            raise ValueError(f"Missing required major section: {sec}.")
 
 def clear_body(d):
     body = d.element.body
@@ -381,3 +460,9 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# v3 change:
+# Closing/CTA headings are detected by document position, not CTA wording:
+# after the FAQ major section, the next heading is treated as the Closing
+# heading. This prevents the parser from requiring phrase-specific CTA rules.
