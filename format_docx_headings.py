@@ -1,392 +1,359 @@
 #!/usr/bin/env python3
 """
-Apply Word heading styles from a sample outline onto unformatted .docx files.
+Backward-compatible Word-to-Elementor DOCX formatter.
 
-The Word-to-Elementor plugin reads Heading 1 / 2 / 3 (not bold-only text).
-Sample Format.docx is the outline this script copies:
+Run with no arguments:
+    python format_docx_headings.py
 
-  Heading 1  page title
-  Normal     intro paragraphs
-  Heading 2  section title (Services, Why Choose Us, Process, FAQ, Closing)
-  Heading 3  card / step / FAQ question
-  Normal     card body / FAQ answer / closing copy
+It automatically processes every .docx in ./unformatted and writes:
+    ./formatted/<name> - formatted.docx
+
+Content mapping follows AutomationTestTemplate2.0.json:
+HeroH1, HeroP,
+Section2H2 + Section2Content1..4,
+Section3H2 + Section3H2Subtitle + Section3Content1..6,
+Section4H2 + Section4Content1H3/Desc..6,
+Section5H2 + Section5Content,
+Section6H2 + Section6P.
 """
-
 from __future__ import annotations
-
 import argparse
+import json
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-
 from docx import Document
-from docx.oxml.ns import qn
-from docx.text.paragraph import Paragraph
 
-HEADING_STYLE = {1: "Heading 1", 2: "Heading 2", 3: "Heading 3"}
-BODY_STYLE = "Normal"
-
-DEFAULT_SECTION_TITLES = {
-    "services": "Our Services",
-    "why": "Why Choose Us",
-    "process": "Our Process",
-    "faq": "FAQs",
-    "closing": "Closing Section",
-}
-
-SECTION_ORDER = ("services", "why", "process", "faq", "closing")
-INPUT_DIR = Path("unformatted")
-OUTPUT_DIR = Path("formatted")
-SAMPLE_DIR = Path("sample formats")
-DEFAULT_SAMPLE_NAME = "Sample Format.docx"
-
+BASE_DIR = Path(__file__).resolve().parent
+INPUT_DIR = BASE_DIR / "unformatted"
+OUTPUT_DIR = BASE_DIR / "formatted"
+SAMPLE_DIRS = (BASE_DIR / "sample formats", BASE_DIR / "sample_formats", BASE_DIR)
+SAMPLE_NAMES = ("Sample Format.docx", "sample format.docx")
+SECTIONS = ("services", "why", "process", "faq", "closing")
+MAX_ITEMS = {"services": 4, "why": 6, "process": 6, "faq": 6}
 
 @dataclass
 class Item:
     title: str
     bodies: list[str] = field(default_factory=list)
 
-
 @dataclass
 class Outline:
     title: str = ""
-    intro: list[str] = field(default_factory=list)
+    hero: list[str] = field(default_factory=list)
     section_titles: dict[str, str] = field(default_factory=dict)
+    section_subtitles: dict[str, str] = field(default_factory=dict)
     items: dict[str, list[Item]] = field(default_factory=dict)
-    closing_bodies: list[str] = field(default_factory=list)
+    closing: list[str] = field(default_factory=list)
+    def __post_init__(self):
+        for s in SECTIONS:
+            self.section_titles.setdefault(s, "")
+            self.section_subtitles.setdefault(s, "")
+            self.items.setdefault(s, [])
 
-    def __post_init__(self) -> None:
-        for key in SECTION_ORDER:
-            self.section_titles.setdefault(key, "")
-            self.items.setdefault(key, [])
+def ptext(p):
+    return "".join(r.text or "" for r in p.runs).strip()
 
+def hlevel(p):
+    style = p.style
+    name = (style.name or "") if style else ""
+    m = re.search(r"heading\s*([1-3])", name, re.I)
+    if m:
+        return int(m.group(1))
+    sid = getattr(style, "style_id", "") if style else ""
+    m = re.search(r"heading\s*([1-3])", sid or "", re.I)
+    if m:
+        return int(m.group(1))
+    return int(sid) if sid in {"1", "2", "3"} else 0
 
-def paragraph_text(paragraph: Paragraph) -> str:
-    return "".join(run.text or "" for run in paragraph.runs).strip()
+def norm(s):
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", s.lower())).strip()
 
-
-def heading_level(paragraph: Paragraph) -> int:
-    style = paragraph.style
-    name = (style.name if style is not None else "") or ""
-    match = re.search(r"heading\s*([1-3])", name, re.I)
-    if match:
-        return int(match.group(1))
-    style_id = getattr(style, "style_id", "") or ""
-    match = re.search(r"heading\s*([1-3])", style_id, re.I)
-    if match:
-        return int(match.group(1))
-    if style_id in {"1", "2", "3"}:
-        return int(style_id)
-    return 0
-
-
-def normalize(text: str) -> str:
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def classify_section_title(text: str) -> str | None:
-    if text.strip().endswith("?"):
+def classify_section(s):
+    n = norm(s)
+    if not n:
         return None
-    key = normalize(text)
-    if not key:
-        return None
-    words = key.split()
-    if key in {"faq", "faqs", "frequently asked questions"} or key.endswith(" faq"):
+    if n.startswith("frequently asked questions") or n in {"faq", "faqs", "frequently asked questions"}:
         return "faq"
-    if key in {"process", "our process"} or key.endswith(" process"):
+    if (
+        n.startswith("our process")
+        or n == "process"
+        or n.endswith(" installation process")
+        or n == "installation process"
+    ):
         return "process"
-    if key.startswith("why choose") or key.startswith("why do people") or key in {"why us", "why choose us"}:
+    if n.startswith("why choose") or n.startswith("why do people") or n in {"why us", "why choose us"}:
         return "why"
-    if "closing" in key:
+    if "closing" in n or n.startswith("upgrade your"):
         return "closing"
-    compact = key.replace(" ", "")
-    if compact in {"services", "ourservices"} or key in {
-        "our services",
-        "our services and others",
-        "services and others",
-    }:
+    if n in {"services", "our services", "our services and others", "services and others"}:
         return "services"
-    if len(words) <= 3 and words[-1] == "services" and words[0] in {"our", "the"}:
+    if n.endswith(" services") and n.split()[0] in {"our", "the"}:
         return "services"
     return None
 
-
-def looks_like_question(text: str) -> bool:
-    stripped = text.strip()
-    if stripped.endswith("?"):
-        return True
-    start = normalize(stripped).split(" ")[:1]
-    return start == ["what"] or start == ["how"] or start == ["why"] or start == ["do"] or start == ["can"] or start == ["are"]
-
-
-def read_paragraphs(path: Path) -> list[tuple[int, str]]:
-    document = Document(str(path))
-    rows: list[tuple[int, str]] = []
-    for paragraph in document.paragraphs:
-        text = paragraph_text(paragraph)
-        if not text:
-            continue
-        rows.append((heading_level(paragraph), text))
+def read_rows(path):
+    d = Document(str(path))
+    rows = [(hlevel(p), ptext(p)) for p in d.paragraphs if ptext(p)]
     if not rows:
         raise ValueError(f"No readable paragraphs in {path}")
     return rows
 
+def collect_body(rows, i):
+    out = []
+    while i < len(rows) and rows[i][0] == 0:
+        out.append(rows[i][1])
+        i += 1
+    return out, i
 
-def next_is_heading(rows: list[tuple[int, str]], index: int) -> bool:
-    return index + 1 < len(rows) and rows[index + 1][0] > 0
+def parse_outline(path):
+    rows = read_rows(path)
+    o = Outline()
+    i = 0
 
+    # HeroH1
+    o.title = rows[i][1]
+    i += 1
 
-def collect_bodies(rows: list[tuple[int, str]], start: int) -> tuple[list[str], int]:
-    bodies: list[str] = []
-    index = start
-    while index < len(rows) and rows[index][0] == 0:
-        bodies.append(rows[index][1])
-        index += 1
-    return bodies, index
+    # AutomationTestTemplate2.0 has HeroH1 + HeroP only. A heading immediately
+    # following the H1 is therefore treated as hero copy, not a service item.
+    if i < len(rows) and rows[i][0] in (1, 2) and not classify_section(rows[i][1]):
+        o.hero.append(rows[i][1])
+        i += 1
 
+    b, i = collect_body(rows, i)
+    o.hero.extend(b)
 
-def parse_outline(path: Path) -> Outline:
-    rows = read_paragraphs(path)
-    outline = Outline()
+    current = None
 
-    index = 0
-    if rows[0][0] == 0:
-        # Rare: title stored as a body paragraph.
-        outline.title = rows[0][1]
-        index = 1
-    else:
-        outline.title = rows[0][1]
-        index = 1
-        # Sample Format uses a second Heading 1 as a subtitle; skip it if
-        # the following block is still intro copy (body text).
-        if index < len(rows) and rows[index][0] == 1 and not classify_section_title(rows[index][1]):
-            index += 1
+    while i < len(rows):
+        level, text = rows[i]
+        sec = classify_section(text) if level in (1, 2) else None
 
-    intro, index = collect_bodies(rows, index)
-    outline.intro = intro
-
-    current = "services"
-    untitled_blocks = 0
-
-    while index < len(rows):
-        level, text = rows[index]
-        if level == 0:
-            if current == "closing":
-                outline.closing_bodies.append(text)
-            elif outline.items[current]:
-                outline.items[current][-1].bodies.append(text)
-            elif current == "services" and not outline.section_titles["services"]:
-                outline.intro.append(text)
-            index += 1
+        if sec:
+            current = sec
+            o.section_titles[sec] = text
+            i += 1
             continue
 
-        named = classify_section_title(text)
-        starts_section = named is not None or next_is_heading(rows, index)
-
-        if current == "faq" and not named and not next_is_heading(rows, index) and not looks_like_question(text):
-            current = "closing"
-            outline.section_titles["closing"] = text
-            index += 1
-            bodies, index = collect_bodies(rows, index)
-            outline.closing_bodies.extend(bodies)
+        if current is None:
+            i += 1
             continue
 
-        if starts_section and named:
-            current = named
-            outline.section_titles[current] = text
-            index += 1
+        # Section 6: all following content is closing copy.
+        if current == "closing":
+            o.closing.append(text)
+            i += 1
             continue
 
-        if starts_section and named is None and next_is_heading(rows, index):
-            # Unknown section banner (heading immediately followed by another heading).
-            untitled_blocks += 1
-            current = SECTION_ORDER[min(untitled_blocks - 1, len(SECTION_ORDER) - 1)]
-            outline.section_titles[current] = text
-            index += 1
+        # Section 5: every heading is an FAQ question; following body is answer.
+        if current == "faq":
+            if level > 0:
+                item = Item(text)
+                i += 1
+                b, i = collect_body(rows, i)
+                item.bodies.extend(b)
+                o.items[current].append(item)
+            else:
+                if o.items[current]:
+                    o.items[current][-1].bodies.append(text)
+                i += 1
             continue
 
-        outline.items[current].append(Item(title=text))
-        index += 1
-        bodies, index = collect_bodies(rows, index)
-        outline.items[current][-1].bodies.extend(bodies)
+        # Section 3 has an optional subtitle slot, but the source format
+        # uses Heading 2 entries as the actual six "Why Choose Us" items.
+        # Therefore, never consume the first heading as a subtitle merely
+        # because another heading follows it. An optional subtitle can be
+        # supplied explicitly later; by default this slot stays empty.
 
-        if current == "services" and not outline.section_titles["services"]:
-            outline.section_titles["services"] = DEFAULT_SECTION_TITLES["services"]
+        # Services, Why, Process: heading + following body = item.
+        if level > 0:
+            item = Item(text)
+            i += 1
+            b, i = collect_body(rows, i)
+            item.bodies.extend(b)
+            o.items[current].append(item)
+        else:
+            if o.items[current]:
+                o.items[current][-1].bodies.append(text)
+            i += 1
 
-    for key, default in DEFAULT_SECTION_TITLES.items():
-        if not outline.section_titles[key] and (outline.items[key] or key == "closing" and outline.closing_bodies):
-            outline.section_titles[key] = default
+    return o
 
-    return outline
+def validate(o):
+    if not o.title:
+        raise ValueError("HeroH1/page title is missing.")
+    for sec, maximum in MAX_ITEMS.items():
+        if len(o.items[sec]) > maximum:
+            raise ValueError(f"{sec} contains {len(o.items[sec])} items; template allows {maximum}.")
+        for num, item in enumerate(o.items[sec], 1):
+            if not item.bodies:
+                raise ValueError(f"{sec} item {num} ({item.title!r}) has no description/body.")
+    if o.closing and not o.section_titles["closing"]:
+        raise ValueError("Closing copy exists without Section6H2.")
 
-
-def clear_document_body(document: Document) -> None:
-    body = document.element.body
-    sect_pr = body.find(qn("w:sectPr"))
+def clear_body(d):
+    body = d.element.body
+    sect = body.find("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}sectPr")
     for child in list(body):
-        if child is not sect_pr:
+        if child is not sect:
             body.remove(child)
 
+def add(d, style, value):
+    p = d.add_paragraph(value)
+    p.style = style
 
-def add_paragraph(document: Document, text: str, style: str) -> None:
-    paragraph = document.add_paragraph(text)
-    try:
-        paragraph.style = style
-    except KeyError:
-        paragraph.style = document.styles[style]
+def write_docx(o, sample, output):
+    d = Document(str(sample))
+    clear_body(d)
 
+    add(d, "Heading 1", o.title)
+    for x in o.hero:
+        add(d, "Normal", x)
 
-def write_outline(outline: Outline, sample_path: Path, output_path: Path) -> None:
-    document = Document(str(sample_path))
-    clear_document_body(document)
+    # Section 2
+    if o.section_titles["services"]:
+        add(d, "Heading 2", o.section_titles["services"])
+        for x in o.items["services"]:
+            add(d, "Heading 3", x.title)
+            for b in x.bodies:
+                add(d, "Normal", b)
 
-    add_paragraph(document, outline.title, HEADING_STYLE[1])
-    for para in outline.intro:
-        add_paragraph(document, para, BODY_STYLE)
+    # Section 3
+    if o.section_titles["why"]:
+        add(d, "Heading 2", o.section_titles["why"])
+        if o.section_subtitles["why"]:
+            add(d, "Heading 3", o.section_subtitles["why"])
+        for x in o.items["why"]:
+            add(d, "Heading 3", x.title)
+            for b in x.bodies:
+                add(d, "Normal", b)
 
-    for key in SECTION_ORDER:
-        title = outline.section_titles.get(key) or DEFAULT_SECTION_TITLES[key]
-        if key != "closing" and not outline.items[key]:
-            continue
-        if key == "closing" and not outline.closing_bodies and not title:
-            continue
+    # Section 4
+    if o.section_titles["process"]:
+        add(d, "Heading 2", o.section_titles["process"])
+        for x in o.items["process"]:
+            add(d, "Heading 3", x.title)
+            for b in x.bodies:
+                add(d, "Normal", b)
 
-        add_paragraph(document, title, HEADING_STYLE[2])
-        if key == "closing":
-            for para in outline.closing_bodies:
-                add_paragraph(document, para, BODY_STYLE)
-            continue
+    # Section 5
+    if o.section_titles["faq"]:
+        add(d, "Heading 2", o.section_titles["faq"])
+        for x in o.items["faq"]:
+            add(d, "Heading 3", x.title)
+            for b in x.bodies:
+                add(d, "Normal", b)
 
-        for item in outline.items[key]:
-            add_paragraph(document, item.title, HEADING_STYLE[3])
-            if item.bodies:
-                for para in item.bodies:
-                    add_paragraph(document, para, BODY_STYLE)
-            else:
-                add_paragraph(document, "", BODY_STYLE)
+    # Section 6
+    if o.section_titles["closing"]:
+        add(d, "Heading 2", o.section_titles["closing"])
+        for b in o.closing:
+            add(d, "Normal", b)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    document.save(str(output_path))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    d.save(str(output))
 
+def mapping(o):
+    return {
+        "HeroH1": o.title,
+        "HeroP": "\n".join(o.hero),
+        "Section2H2": o.section_titles["services"],
+        "Section2Content": [
+            {"data-customid": f"Section2Content{i}", "title": x.title, "description": "\n".join(x.bodies)}
+            for i, x in enumerate(o.items["services"], 1)
+        ],
+        "Section3H2": o.section_titles["why"],
+        "Section3H2Subtitle": o.section_subtitles["why"],
+        "Section3Content": [
+            {"data-customid": f"Section3Content{i}", "title": x.title, "description": "\n".join(x.bodies)}
+            for i, x in enumerate(o.items["why"], 1)
+        ],
+        "Section4H2": o.section_titles["process"],
+        "Section4Content": [
+            {"h3_slot": f"Section4Content{i}H3", "description_slot": f"Section4Content{i}Desc",
+             "title": x.title, "description": "\n".join(x.bodies)}
+            for i, x in enumerate(o.items["process"], 1)
+        ],
+        "Section5H2": o.section_titles["faq"],
+        "Section5Content": [
+            {"question": x.title, "answer": "\n".join(x.bodies)}
+            for x in o.items["faq"]
+        ],
+        "Section6H2": o.section_titles["closing"],
+        "Section6P": "\n".join(o.closing),
+    }
 
-def output_name(source: Path, output_dir: Path, in_place: bool) -> Path:
-    if in_place:
-        return source
-    return output_dir / f"{source.stem} - formatted.docx"
+def find_sample():
+    for directory in SAMPLE_DIRS:
+        for name in SAMPLE_NAMES:
+            candidate = directory / name
+            if candidate.is_file():
+                return candidate
+    for directory in SAMPLE_DIRS:
+        if directory.is_dir():
+            for candidate in sorted(directory.glob("*.docx")):
+                if not candidate.name.startswith("~$") and candidate.parent not in {INPUT_DIR, OUTPUT_DIR}:
+                    return candidate
+    return None
 
+def parse_args(argv):
+    ap = argparse.ArgumentParser(description="Format DOCX files for the Word-to-Elementor template.")
+    ap.add_argument("inputs", nargs="*", type=Path)
+    ap.add_argument("--sample", type=Path, default=None)
+    ap.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    ap.add_argument("--output", type=Path, default=None)
+    ap.add_argument("--template-json", type=Path, default=None)
+    ap.add_argument("--mapping-json", action="store_true")
+    return ap.parse_args(argv)
 
-def format_file(source: Path, sample: Path, dest: Path) -> Outline:
-    outline = parse_outline(source)
-    write_outline(outline, sample, dest)
-    return outline
+def main(argv=None):
+    a = parse_args(argv if argv is not None else sys.argv[1:])
+    inputs = list(a.inputs) or sorted(
+        p for p in INPUT_DIR.glob("*.docx") if not p.name.startswith("~$")
+    ) if INPUT_DIR.is_dir() else []
 
-
-def summarize(outline: Outline) -> str:
-    parts = [
-        f"title={outline.title!r}",
-        f"intro={len(outline.intro)}",
-    ]
-    for key in SECTION_ORDER:
-        if key == "closing":
-            parts.append(f"closing={len(outline.closing_bodies)}")
-        else:
-            parts.append(f"{key}={len(outline.items[key])}")
-    return ", ".join(parts)
-
-
-def resolve_sample(path: Path) -> Path | None:
-    if path.is_file():
-        return path
-    folder = path if path.is_dir() else SAMPLE_DIR
-    named = folder / DEFAULT_SAMPLE_NAME
-    if named.is_file():
-        return named
-    matches = sorted(
-        candidate
-        for candidate in folder.glob("*.docx")
-        if not candidate.name.startswith("~$")
-    )
-    return matches[0] if matches else None
-
-
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Restyle .docx outlines to match Sample Format.docx heading levels."
-    )
-    parser.add_argument(
-        "--sample",
-        type=Path,
-        default=SAMPLE_DIR,
-        help="Sample outline file, or the sample formats folder (default: sample formats).",
-    )
-    parser.add_argument(
-        "--input-dir",
-        type=Path,
-        default=INPUT_DIR,
-        help="Folder of unformatted .docx files (default: unformatted).",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=OUTPUT_DIR,
-        help="Folder for formatted copies (default: formatted).",
-    )
-    parser.add_argument(
-        "--in-place",
-        action="store_true",
-        help="Overwrite the source files instead of writing copies.",
-    )
-    parser.add_argument(
-        "inputs",
-        nargs="*",
-        type=Path,
-        help="Documents to format. Defaults to all .docx files in the input directory.",
-    )
-    return parser.parse_args(argv)
-
-
-def default_inputs(input_dir: Path) -> list[Path]:
-    return sorted(
-        path
-        for path in input_dir.glob("*.docx")
-        if not path.name.startswith("~$")
-    )
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv if argv is not None else sys.argv[1:])
-    sample = resolve_sample(args.sample)
-    if sample is None:
-        print(f"Sample format not found: {args.sample}", file=sys.stderr)
+    if not inputs:
+        print(f"No .docx files found in {INPUT_DIR}", file=sys.stderr)
         return 1
 
-    inputs = list(args.inputs) if args.inputs else default_inputs(args.input_dir)
-    if not inputs:
-        print(f"No input .docx files found in {args.input_dir}.", file=sys.stderr)
+    sample = a.sample or find_sample()
+    if sample is None or not sample.is_file():
+        print("Sample DOCX not found. Use --sample \"path\\to\\Sample Format.docx\".", file=sys.stderr)
         return 1
 
     failures = 0
     for source in inputs:
-        if source.name.startswith("~$"):
-            continue
         if not source.is_file():
             print(f"Skip missing file: {source}", file=sys.stderr)
             failures += 1
             continue
-        dest = output_name(source, args.output_dir, args.in_place)
+
+        output = a.output if len(inputs) == 1 and a.output else a.output_dir / f"{source.stem} - formatted.docx"
+
         try:
-            outline = format_file(source, sample, dest)
-        except Exception as exc:  # noqa: BLE001 — report and continue other files
+            outline = parse_outline(source)
+            validate(outline)
+            write_docx(outline, sample, output)
+
+            print(f"Wrote: {output}")
+            print(f"  HeroH1: {outline.title!r}")
+            print(f"  HeroP: {len(outline.hero)} paragraph(s)")
+            print(f"  Section2Content: {len(outline.items['services'])}")
+            print(f"  Section3Content: {len(outline.items['why'])}")
+            print(f"  Section4Content: {len(outline.items['process'])}")
+            print(f"  Section5Content: {len(outline.items['faq'])}")
+            print(f"  Section6P: {len(outline.closing)} paragraph(s)")
+
+            if a.mapping_json:
+                print(json.dumps(mapping(outline), ensure_ascii=False, indent=2))
+
+        except Exception as exc:
             print(f"Failed {source}: {exc}", file=sys.stderr)
             failures += 1
-            continue
-        print(f"Wrote {dest}")
-        print(f"  {summarize(outline)}")
-    return 1 if failures else 0
 
+    return 1 if failures else 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
