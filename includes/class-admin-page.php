@@ -137,67 +137,7 @@ class WTE_Admin_Page {
 				</div>
 			<?php endif; ?>
 
-			<h2><?php esc_html_e( 'Create page from Word', 'word-to-elementor-wf' ); ?></h2>
-			<form method="post" enctype="multipart/form-data">
-				<?php wp_nonce_field( 'wte_admin', 'wte_nonce' ); ?>
-				<input type="hidden" name="wte_action" value="create_page" />
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row">
-							<label for="wte_docx"><?php esc_html_e( 'Word document', 'word-to-elementor-wf' ); ?></label>
-						</th>
-						<td>
-							<input type="file" id="wte_docx" name="wte_docx" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required />
-							<p class="description"><?php esc_html_e( 'Use Heading 1 for the page title, Heading 2 for sections (Services, Why Choose Us, Process, FAQ, Closing), and Heading 3 for items.', 'word-to-elementor-wf' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wte_page_title"><?php esc_html_e( 'Page title', 'word-to-elementor-wf' ); ?></label>
-						</th>
-						<td>
-							<input type="text" class="regular-text" id="wte_page_title" name="wte_page_title" value="" />
-							<p class="description"><?php esc_html_e( 'Optional. Defaults to the Word Heading 1.', 'word-to-elementor-wf' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Formatting options', 'word-to-elementor-wf' ); ?></th>
-						<td>
-							<fieldset>
-								<label>
-									<input type="checkbox" name="wte_bold_phone_links" value="1" />
-									<?php esc_html_e( 'Bold phone-number hyperlinks', 'word-to-elementor-wf' ); ?>
-								</label><br />
-								<label>
-									<input type="checkbox" name="wte_underline_phone_links" value="1" />
-									<?php esc_html_e( 'Underline phone-number hyperlinks', 'word-to-elementor-wf' ); ?>
-								</label>
-							</fieldset>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="wte_format_words"><?php esc_html_e( 'Words to format', 'word-to-elementor-wf' ); ?></label>
-						</th>
-						<td>
-							<input type="text" class="large-text" id="wte_format_words" name="wte_format_words" value="" />
-							<p class="description"><?php esc_html_e( 'Enter words or phrases separated by commas. Example: roof repair, emergency service, licensed.', 'word-to-elementor-wf' ); ?></p>
-							<p>
-								<label>
-									<input type="checkbox" name="wte_bold_words" value="1" />
-									<?php esc_html_e( 'Bold these words/phrases', 'word-to-elementor-wf' ); ?>
-								</label>
-								&nbsp;&nbsp;
-								<label>
-									<input type="checkbox" name="wte_underline_words" value="1" />
-									<?php esc_html_e( 'Underline these words/phrases', 'word-to-elementor-wf' ); ?>
-								</label>
-							</p>
-						</td>
-					</tr>
-				</table>
-				<?php submit_button( __( 'Create draft page', 'word-to-elementor-wf' ), 'primary', 'wte_submit', false, $elementor_ok ? array() : array( 'disabled' => 'disabled' ) ); ?>
-			</form>
+			
 
 			<hr />
 
