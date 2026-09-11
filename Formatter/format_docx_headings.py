@@ -526,15 +526,14 @@ def parse_args(argv):
     ap.add_argument("--sample", type=Path, default=None)
     ap.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     ap.add_argument("--output", type=Path, default=None)
-    ap.add_argument("--template-json", type=Path, default=None)
     ap.add_argument("--mapping-json", action="store_true")
     return ap.parse_args(argv)
 
 def main(argv=None):
     a = parse_args(argv if argv is not None else sys.argv[1:])
-    inputs = list(a.inputs) or sorted(
-        p for p in INPUT_DIR.glob("*.docx") if not p.name.startswith("~$")
-    ) if INPUT_DIR.is_dir() else []
+    inputs = list(a.inputs)
+    if not inputs and INPUT_DIR.is_dir():
+        inputs = sorted(p for p in INPUT_DIR.glob("*.docx") if not p.name.startswith("~$"))
 
     if not inputs:
         print(f"No .docx files found in {INPUT_DIR}", file=sys.stderr)

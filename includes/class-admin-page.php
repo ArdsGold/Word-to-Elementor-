@@ -137,7 +137,6 @@ class WTE_Admin_Page {
 				</div>
 			<?php endif; ?>
 
-			
 
 			<hr />
 
@@ -320,6 +319,7 @@ class WTE_Admin_Page {
 		);
 
 		$parser  = new WTE_Docx_Parser();
+		$filler  = new WTE_Template_Filler( $format_options );
 		$creator = new WTE_Page_Creator();
 		$pages   = array();
 		$errors  = array();
@@ -327,7 +327,7 @@ class WTE_Admin_Page {
 
 		foreach ( $_FILES['wte_bulk_docx']['tmp_name'] as $i => $tmp_path ) {
 			$name = isset( $_FILES['wte_bulk_docx']['name'][ $i ] )
-				? sanitize_file_name( wp_unslash( $_FILES['wte_bulk_docx']['name'][ $i ] ) )
+				? sanitize_text_field( wp_unslash( $_FILES['wte_bulk_docx']['name'][ $i ] ) )
 				: 'Document ' . ( $i + 1 );
 
 			try {
@@ -349,7 +349,6 @@ class WTE_Admin_Page {
 					throw new Exception( __( 'The document is missing a Heading 1 page title.', 'word-to-elementor-wf' ) );
 				}
 
-				$filler = new WTE_Template_Filler( $format_options );
 				$filled = $filler->fill( $outline );
 				$page_title = sanitize_text_field( pathinfo( $name, PATHINFO_FILENAME ) );
 				$post_id = $creator->create( $filled, $page_title, $publish_immediately );

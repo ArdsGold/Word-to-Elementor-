@@ -13,6 +13,8 @@ class WTE_Template_Filler {
 	private $bold_words = false;
 	private $underline_words = false;
 	private $format_words = array();
+	private $format_words_pattern = '';
+	private $node_index = array();
 
 	/**
 	 * @param array $options Formatting options.
@@ -22,9 +24,16 @@ class WTE_Template_Filler {
 		$this->underline_phone_links = ! empty( $options['underline_phone_links'] );
 		$this->bold_words         = ! empty( $options['bold_words'] );
 		$this->underline_words    = ! empty( $options['underline_words'] );
-		$this->format_words       = ! empty( $options['format_words'] ) && is_array( $options['format_words'] )
+		$this->format_words = ! empty( $options['format_words'] ) && is_array( $options['format_words'] )
 			? array_values( array_filter( array_map( 'trim', $options['format_words'] ) ) )
 			: array();
+
+		if ( $this->format_words && ( $this->bold_words || $this->underline_words ) ) {
+			$patterns = array_map( function ( $word ) {
+				return preg_quote( $word, '/' );
+			}, $this->format_words );
+			$this->format_words_pattern = '/(?<![\p{L}\p{N}_])(?:' . implode( '|', $patterns ) . ')(?![\p{L}\p{N}_])/iu';
+		}
 	}
 
 	const HERO_TITLE       = 'HeroH1';
@@ -55,56 +64,56 @@ class WTE_Template_Filler {
 		}
 
 		$content = &$data['content'];
+		$this->node_index = array();
+		$this->index_nodes( $content );
 
-		$this->set_heading( $content, self::HERO_TITLE, $outline['title'] );
-		$this->set_editor( $content, self::HERO_INTRO, $outline['intro'] );
+		$this->set_heading( self::HERO_TITLE, $outline['title'] );
+		$this->set_editor( self::HERO_INTRO, $outline['intro'] );
 
 		if ( ! empty( $outline['services_heading'] ) ) {
-			$this->set_heading( $content, self::SERVICES_HEADING, $outline['services_heading'] );
+			$this->set_heading( self::SERVICES_HEADING, $outline['services_heading'] );
 		}
 		for ( $i = 0; $i < 4; $i++ ) {
 			if ( empty( $outline['services'][ $i ] ) ) {
 				break;
 			}
 			$this->set_icon_box(
-				$content,
 				'Section2Content' . ( $i + 1 ),
 				$outline['services'][ $i ]['title'],
 				$outline['services'][ $i ]['body']
 			);
 		}
 
-		$this->set_heading( $content, self::WHY_HEADING, $outline['why_heading'] );
+		$this->set_heading( self::WHY_HEADING, $outline['why_heading'] );
 		for ( $i = 0; $i < 6; $i++ ) {
 			if ( empty( $outline['why'][ $i ] ) ) {
 				break;
 			}
 			$this->set_icon_box(
-				$content,
 				'Section3Content' . ( $i + 1 ),
 				$outline['why'][ $i ]['title'],
 				$outline['why'][ $i ]['body']
 			);
 		}
 
-		$this->set_heading( $content, self::PROCESS_HEADING, $outline['process_heading'] );
+		$this->set_heading( self::PROCESS_HEADING, $outline['process_heading'] );
 		for ( $i = 0; $i < 6; $i++ ) {
 			if ( empty( $outline['process'][ $i ] ) ) {
 				break;
 			}
 			$n = $i + 1;
-			$this->set_heading( $content, 'Section4Content' . $n . 'H3', $outline['process'][ $i ]['title'] );
-			$this->set_editor( $content, 'Section4Content' . $n . 'Desc', array( $outline['process'][ $i ]['body'] ) );
+			$this->set_heading( 'Section4Content' . $n . 'H3', $outline['process'][ $i ]['title'] );
+			$this->set_editor( 'Section4Content' . $n . 'Desc', array( $outline['process'][ $i ]['body'] ) );
 		}
 
-		$this->set_heading( $content, self::FAQ_HEADING, $outline['faq_heading'] );
-		$this->set_faqs( $content, self::FAQ_TOGGLE, $outline['faqs'] );
+		$this->set_heading( self::FAQ_HEADING, $outline['faq_heading'] );
+		$this->set_faqs( self::FAQ_TOGGLE, $outline['faqs'] );
 
 		if ( ! empty( $outline['closing_heading'] ) ) {
-			$this->set_heading( $content, self::CLOSING_HEADING, $outline['closing_heading'] );
+			$this->set_heading( self::CLOSING_HEADING, $outline['closing_heading'] );
 		}
 		if ( ! empty( $outline['closing'] ) ) {
-			$this->set_editor( $content, self::CLOSING_INTRO, $outline['closing'] );
+			$this->set_editor( self::CLOSING_INTRO, $outline['closing'] );
 		}
 
 		$page_settings = isset( $data['page_settings'] ) && is_array( $data['page_settings'] )
@@ -158,89 +167,89 @@ class WTE_Template_Filler {
 	}
 
 	/**
-	 * @param array  $nodes
 	 * @param string $custom_id
 	 * @param string $title
 	 * @return bool
 	 */
-	private function set_heading( &$nodes, $custom_id, $title ) {
-		if ( '' === (string) $title ) {
+	private function set_heading( $custom_id, $title ) {
+		if ( '' === (string) $title || empty( $this->node_index[ $custom_id ] ) ) {
 			return false;
 		}
-		foreach ( array_keys( $nodes ) as $i ) {
-			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
-				$nodes[ $i ]['settings']['title'] = $this->phone_links( $title );
-				return true;
-			}
-			if ( ! empty( $nodes[ $i ]['elements'] ) && is_array( $nodes[ $i ]['elements'] ) ) {
-				if ( $this->set_heading( $nodes[ $i ]['elements'], $custom_id, $title ) ) {
-					return true;
-				}
-			}
-		}
-		return false;
+
+		$this->node_index[ $custom_id ]['settings']['title'] = $this->phone_links( $title );
+		return true;
 	}
 
 	/**
-	 * @param array  $nodes
+	 * Index fillable Elementor nodes once so each replacement is O(1).
+	 *
+	 * @param array $nodes
+	 */
+	private function index_nodes( &$nodes ) {
+		foreach ( $nodes as &$node ) {
+			if ( ! is_array( $node ) ) {
+				continue;
+			}
+
+			$custom_id = $this->node_custom_id( $node );
+			if ( '' !== $custom_id && ! isset( $this->node_index[ $custom_id ] ) ) {
+				$this->node_index[ $custom_id ] =& $node;
+			}
+
+			if ( ! empty( $node['elements'] ) && is_array( $node['elements'] ) ) {
+				$this->index_nodes( $node['elements'] );
+			}
+		}
+		unset( $node );
+	}
+
+	/**
 	 * @param string $custom_id
 	 * @param string $title
 	 * @param string $body
 	 * @return bool
 	 */
-	private function set_icon_box( &$nodes, $custom_id, $title, $body ) {
-		foreach ( array_keys( $nodes ) as $i ) {
-			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
-				if ( '' !== (string) $title ) {
-					$nodes[ $i ]['settings']['title_text'] = $this->phone_links( $title );
-				}
-				if ( '' !== (string) $body ) {
-					$nodes[ $i ]['settings']['description_text'] = $this->phone_links( $body );
-				}
-				return true;
-			}
-			if ( ! empty( $nodes[ $i ]['elements'] ) && is_array( $nodes[ $i ]['elements'] ) ) {
-				if ( $this->set_icon_box( $nodes[ $i ]['elements'], $custom_id, $title, $body ) ) {
-					return true;
-				}
-			}
+	private function set_icon_box( $custom_id, $title, $body ) {
+		if ( empty( $this->node_index[ $custom_id ] ) ) {
+			return false;
 		}
-		return false;
+
+		$node =& $this->node_index[ $custom_id ];
+		if ( '' !== (string) $title ) {
+			$node['settings']['title_text'] = $this->phone_links( $title );
+		}
+		if ( '' !== (string) $body ) {
+			$node['settings']['description_text'] = $this->phone_links( $body );
+		}
+		unset( $node );
+
+		return true;
 	}
 
 	/**
-	 * @param array    $nodes
 	 * @param string   $custom_id
 	 * @param string[] $paragraphs
 	 * @return bool
 	 */
-	private function set_editor( &$nodes, $custom_id, $paragraphs ) {
-		if ( empty( $paragraphs ) ) {
+	private function set_editor( $custom_id, $paragraphs ) {
+		if ( empty( $paragraphs ) || empty( $this->node_index[ $custom_id ] ) ) {
 			return false;
 		}
+
 		$html = '';
 		foreach ( $paragraphs as $para ) {
 			$para = trim( (string) $para );
-			if ( '' === $para ) {
-				continue;
+			if ( '' !== $para ) {
+				$html .= '<p>' . $this->phone_links( $para ) . '</p>';
 			}
-			$html .= '<p>' . $this->phone_links( $para ) . '</p>';
 		}
+
 		if ( '' === $html ) {
 			return false;
 		}
-		foreach ( array_keys( $nodes ) as $i ) {
-			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
-				$nodes[ $i ]['settings']['editor'] = $html;
-				return true;
-			}
-			if ( ! empty( $nodes[ $i ]['elements'] ) && is_array( $nodes[ $i ]['elements'] ) ) {
-				if ( $this->set_editor( $nodes[ $i ]['elements'], $custom_id, $paragraphs ) ) {
-					return true;
-				}
-			}
-		}
-		return false;
+
+		$this->node_index[ $custom_id ]['settings']['editor'] = $html;
+		return true;
 	}
 
 	/**
@@ -302,26 +311,12 @@ class WTE_Template_Filler {
 	 */
 	private function format_words_in_plain_text( $text ) {
 		$escaped = esc_html( (string) $text );
-
-		if ( empty( $this->format_words ) || ( ! $this->bold_words && ! $this->underline_words ) ) {
+		if ( '' === $this->format_words_pattern ) {
 			return $escaped;
 		}
-
-		$patterns = array();
-		foreach ( $this->format_words as $word ) {
-			if ( '' !== $word ) {
-				$patterns[] = preg_quote( $word, '/' );
-			}
-		}
-
-		if ( empty( $patterns ) ) {
-			return $escaped;
-		}
-
-		$pattern = '/(?<![\p{L}\p{N}_])(?:' . implode( '|', $patterns ) . ')(?![\p{L}\p{N}_])/iu';
 
 		return preg_replace_callback(
-			$pattern,
+			$this->format_words_pattern,
 			function ( $match ) {
 				return $this->wrap_formatting(
 					$match[0],
@@ -353,39 +348,28 @@ class WTE_Template_Filler {
 
 
 	/**
-	 * @param array  $nodes
 	 * @param string $custom_id
 	 * @param array  $faqs
 	 * @return bool
 	 */
-	private function set_faqs( &$nodes, $custom_id, $faqs ) {
-		if ( empty( $faqs ) ) {
+	private function set_faqs( $custom_id, $faqs ) {
+		if ( empty( $faqs ) || empty( $this->node_index[ $custom_id ]['settings']['tabs'] ) || ! is_array( $this->node_index[ $custom_id ]['settings']['tabs'] ) ) {
 			return false;
 		}
-		foreach ( array_keys( $nodes ) as $i ) {
-			if ( $this->node_custom_id( $nodes[ $i ] ) === $custom_id ) {
-				if ( empty( $nodes[ $i ]['settings']['tabs'] ) || ! is_array( $nodes[ $i ]['settings']['tabs'] ) ) {
-					return false;
-				}
-				foreach ( $nodes[ $i ]['settings']['tabs'] as $t => $tab ) {
-					if ( empty( $faqs[ $t ] ) ) {
-						break;
-					}
-					if ( ! empty( $faqs[ $t ]['q'] ) ) {
-						$nodes[ $i ]['settings']['tabs'][ $t ]['tab_title'] = $this->phone_links( $faqs[ $t ]['q'] );
-					}
-					if ( ! empty( $faqs[ $t ]['a'] ) ) {
-						$nodes[ $i ]['settings']['tabs'][ $t ]['tab_content'] = '<p>' . $this->phone_links( $faqs[ $t ]['a'] ) . '</p>';
-					}
-				}
-				return true;
+
+		foreach ( $this->node_index[ $custom_id ]['settings']['tabs'] as $t => $tab ) {
+			if ( empty( $faqs[ $t ] ) ) {
+			break;
 			}
-			if ( ! empty( $nodes[ $i ]['elements'] ) && is_array( $nodes[ $i ]['elements'] ) ) {
-				if ( $this->set_faqs( $nodes[ $i ]['elements'], $custom_id, $faqs ) ) {
-					return true;
-				}
+			if ( ! empty( $faqs[ $t ]['q'] ) ) {
+				$this->node_index[ $custom_id ]['settings']['tabs'][ $t ]['tab_title'] = $this->phone_links( $faqs[ $t ]['q'] );
+			}
+			if ( ! empty( $faqs[ $t ]['a'] ) ) {
+				$this->node_index[ $custom_id ]['settings']['tabs'][ $t ]['tab_content'] = '<p>' . $this->phone_links( $faqs[ $t ]['a'] ) . '</p>';
 			}
 		}
-		return false;
+
+		return true;
 	}
+
 }
