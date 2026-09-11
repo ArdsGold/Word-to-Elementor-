@@ -552,7 +552,7 @@ def main(argv=None):
             failures += 1
             continue
 
-        output = a.output if len(inputs) == 1 and a.output else a.output_dir / f"{source.stem} - formatted.docx"
+        output = a.output if len(inputs) == 1 and a.output else a.output_dir / f"{source.stem}.docx"
 
         try:
             outline = parse_outline(source)

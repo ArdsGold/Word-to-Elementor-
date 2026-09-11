@@ -176,7 +176,7 @@ class WTE_Admin_Page {
 						</th>
 						<td>
 							<input type="file" id="wte_bulk_docx" name="wte_bulk_docx[]" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple required />
-							<p class="description"><?php esc_html_e( 'Select as many .docx files as you want to process. The Heading 1 in each document becomes that page’s title unless a title override is used in the document workflow.', 'word-to-elementor-wf' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Select as many .docx files as you want to process. The uploaded filename (without the .docx extension) becomes that page’s title.', 'word-to-elementor-wf' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -324,7 +324,8 @@ class WTE_Admin_Page {
 
 				$filler = new WTE_Template_Filler( $format_options );
 				$filled = $filler->fill( $outline );
-				$post_id = $creator->create( $filled, $outline['title'], $publish_immediately );
+				$page_title = sanitize_text_field( pathinfo( $name, PATHINFO_FILENAME ) );
+				$post_id = $creator->create( $filled, $page_title, $publish_immediately );
 
 				$elementor_url = '';
 				if ( class_exists( '\Elementor\Plugin' ) ) {
@@ -407,7 +408,8 @@ class WTE_Admin_Page {
 		}
 
 		$override   = isset( $_POST['wte_page_title'] ) ? sanitize_text_field( wp_unslash( $_POST['wte_page_title'] ) ) : '';
-		$page_title = '' !== $override ? $override : $outline['title'];
+		$filename_title = sanitize_text_field( pathinfo( $name, PATHINFO_FILENAME ) );
+		$page_title = '' !== $override ? $override : $filename_title;
 
 		$format_words = isset( $_POST['wte_format_words'] )
 			? sanitize_text_field( wp_unslash( $_POST['wte_format_words'] ) )
