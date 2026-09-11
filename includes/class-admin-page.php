@@ -180,6 +180,15 @@ class WTE_Admin_Page {
 						</td>
 					</tr>
 					<tr>
+						<th scope="row">
+							<label for="wte_bulk_parent_page"><?php esc_html_e( 'Parent page', 'word-to-elementor-wf' ); ?></label>
+						</th>
+						<td>
+							<input type="text" class="regular-text" id="wte_bulk_parent_page" name="wte_bulk_parent_page" value="" />
+							<p class="description"><?php esc_html_e( 'Enter the exact title of the existing WordPress page to use as the parent. Leave blank for no parent.', 'word-to-elementor-wf' ); ?></p>
+						</td>
+					</tr>
+					<tr>
 						<th scope="row"><?php esc_html_e( 'Publishing options', 'word-to-elementor-wf' ); ?></th>
 						<td>
 							<label>
@@ -283,6 +292,24 @@ class WTE_Admin_Page {
 			: '';
 
 		$publish_immediately = ! empty( $_POST['wte_bulk_publish'] );
+		$parent_title        = isset( $_POST['wte_bulk_parent_page'] )
+			? sanitize_text_field( wp_unslash( $_POST['wte_bulk_parent_page'] ) )
+			: '';
+		$parent_id           = 0;
+
+		if ( '' !== $parent_title ) {
+			$parent_pages = get_posts( array(
+				'post_type'              => 'page',
+				'post_status'            => 'any',
+				'title'                  => $parent_title,
+				'posts_per_page'         => 1,
+				'fields'                 => 'ids',
+			) );
+			if ( empty( $parent_pages ) ) {
+				throw new Exception( sprintf( __( 'Parent page "%s" was not found.', 'word-to-elementor-wf' ), $parent_title ) );
+			}
+			$parent_id = (int) $parent_pages[0];
+		}
 
 		$format_options = array(
 			'bold_phone_links'      => ! empty( $_POST['wte_bulk_bold_phone_links'] ),
@@ -326,6 +353,9 @@ class WTE_Admin_Page {
 				$filled = $filler->fill( $outline );
 				$page_title = sanitize_text_field( pathinfo( $name, PATHINFO_FILENAME ) );
 				$post_id = $creator->create( $filled, $page_title, $publish_immediately );
+				if ( $parent_id ) {
+					wp_update_post( array( 'ID' => $post_id, 'post_parent' => $parent_id ) );
+				}
 
 				$elementor_url = '';
 				if ( class_exists( '\Elementor\Plugin' ) ) {
@@ -333,7 +363,7 @@ class WTE_Admin_Page {
 				}
 
 				$pages[] = array(
-					'title'         => $outline['title'],
+					'title'         => get_the_title( $post_id ),
 					'edit_url'      => get_edit_post_link( $post_id, 'raw' ),
 					'elementor_url' => $elementor_url,
 				);
